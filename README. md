@@ -102,3 +102,4 @@ and human‑readable validation documents.  The internal engines, all
 specification documents, adversarial exchange artifacts, design maps,
 and pipeline algorithms are retained internally and are NOT part of this
 package.  This boundary is intentional and non‑negotiable.
+
