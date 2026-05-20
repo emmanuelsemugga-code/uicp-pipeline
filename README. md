@@ -3,7 +3,7 @@
 ## What this package contains
 
 This package provides public interfaces and automated verification scripts
-for all five phases of the UICP constraint integrity pipeline. It allows
+for all five phases of the UICP constraint integrity pipeline.It allows
 independent engineers and AI labs to confirm every claim made by the system
 without accessing any internal algorithms, pipeline logic, or design maps.
 

@@ -186,4 +186,5 @@ if __name__ == "__main__":
         if success:
             print("\n✓ Decision Record Export Module — VALIDATED")
         else:
-            print("\n✗ Decision Record Export Module — VERIFICATION FAILED")
+          
+            print("\n✗ Decision Record Export Module — VERIFICATION FAILED"
