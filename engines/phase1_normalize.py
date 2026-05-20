@@ -445,7 +445,7 @@ def dominance_reduce(constraints_with_ids):
     if compound_depth_sum > COMPOUND_BUDGET:
         return ([], f"REJECT+HALT: Compound budget exceeded ({compound_depth_sum} > {COMPOUND_BUDGET})")
     return (reduced, None)
-def ADMIT(input_data, constants=None):
+    def ADMIT(input_data, constants=None):
     if constants is None:
         constants = {
             'K': K, 'D': D, 'V': V, 'N_MAX': N_MAX,
@@ -506,7 +506,7 @@ def ADMIT(input_data, constants=None):
         return {'result': 'REJECT+HALT',
                 'reason': f'4.10: compound depth sum {compound_depth_sum} exceeds budget {constants["COMPOUND_BUDGET"]}'}
     return {'result': 'ACCEPT', 'parsed_asts': parsed_asts, 'available_vars': available_vars}
-def NORMALIZE(input_data):
+    def NORMALIZE(input_data):
     admission = ADMIT(input_data)
     if admission['result'] != 'ACCEPT':
         return {'result': 'REJECT+HALT', 'reason': admission['reason']}
@@ -537,8 +537,8 @@ def NORMALIZE(input_data):
         'result': 'OK',
         'constraints': [identity for _, identity in reduced],
         'stats': {'N': len(reduced), 'input_count': len(parsed_asts)}
-    }
-if __name__ == '__main__':
+           }
+    if __name__ == '__main__':
     PASS_COUNT = 0
     FAIL_COUNT = 0
     TOTAL_TESTS = 0
@@ -790,3 +790,5 @@ if __name__ == '__main__':
     else:
         print(f"VERDICT: {FAIL_COUNT} FAILURE(S) — Phase 1 claims violated. Patch required.")
     print("=" * 70)
+    
+    
