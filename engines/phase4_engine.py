@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Phase 4 – UICP Runtime Enforcement Gateway (monolithic, Colab‑ready)
-Engine + 43‑check alignment test suite.
+Engine + 58‑check alignment test suite (GAP‑21 fail‑safe patch).
 """
 import hashlib, json, re
 from datetime import datetime, timezone
@@ -170,25 +170,87 @@ def evaluate_canonical_form(canonical_form, bindings):
                 violations.append({"constraint_identity":c["identity_string"],"canonical_form":c["canonical_form"],
                                    "actual_value":actual_value,"expected":c["canonical_form"]})
         return violations
+
+    # ═══════════════════════════════════════════════════════════════
+    # GAP‑21 PATCH — Fail‑safe check_output (original logic untouched)
+    # ═══════════════════════════════════════════════════════════════
     def check_output(self, request):
-        if not self._loaded: raise RuntimeError("Gateway not initialised.")
-        output_id = request.get("output_id","MISSING_OUTPUT_ID")
-        raw_bindings = request.get("bindings")
-        timestamp = datetime.now(timezone.utc).isoformat()
+        """
+        GAP-21 PATCH: Fail-safe enforcement gateway.
+        Guarantees: this method NEVER raises an exception.
+        Returns a GATEWAY_UNAVAILABLE BLOCK only for truly unexpected failures.
+        """
         try:
-            bindings = self._validate_bindings(raw_bindings)
-        except ValueError as exc:
-            decision = self._build_decision("BLOCK",[{"constraint_identity":"BINDING_VALIDATION",
-                "canonical_form":"N/A","actual_value":str(exc),
-                "expected":"All bindings must be 128‑bit signed integers with string keys"}],output_id,timestamp)
+            # ── Structural guard: request must be a dict ──────────
+            if not isinstance(request, dict):
+                return self._unavailable_block(
+                    output_id="UNKNOWN",
+                    reason=f"request must be dict, got {type(request).__name__}"
+                )
+            output_id = request.get("output_id", "MISSING_OUTPUT_ID")
+            raw_bindings = request.get("bindings")
+
+            # ── Original enforcement logic (exactly as before) ────
+            if not self._loaded:
+                raise RuntimeError("Gateway not initialised.")
+            timestamp = datetime.now(timezone.utc).isoformat()
+            try:
+                bindings = self._validate_bindings(raw_bindings)
+            except ValueError as exc:
+                decision = self._build_decision("BLOCK",[{
+                    "constraint_identity":"BINDING_VALIDATION",
+                    "canonical_form":"N/A",
+                    "actual_value":str(exc),
+                    "expected":"All bindings must be 128‑bit signed integers with string keys"
+                }], output_id, timestamp)
+                self._write_log(decision)
+                return decision
+
+            violations = self._evaluate_all(bindings)
+            if self._review_queue:
+                self._log_review_queue(output_id, timestamp)
+            status = "ALLOW" if not violations else "BLOCK"
+            decision = self._build_decision(status, violations, output_id, timestamp)
             self._write_log(decision)
             return decision
-        violations = self._evaluate_all(bindings)
-        if self._review_queue: self._log_review_queue(output_id, timestamp)
-        status = "ALLOW" if not violations else "BLOCK"
-        decision = self._build_decision(status, violations, output_id, timestamp)
-        self._write_log(decision)
-        return decision
+
+        except Exception as exc:
+            # ── Catch‑all: true gateway failure ─────────────────
+            output_id = "UNKNOWN"
+            if isinstance(request, dict):
+                output_id = request.get("output_id", "UNKNOWN")
+            return self._unavailable_block(
+                output_id=output_id,
+                reason=f"gateway internal error: {type(exc).__name__}: {exc}"
+            )
+
+    def _unavailable_block(self, output_id: str, reason: str) -> dict:
+        """Produce a structurally valid GATEWAY_UNAVAILABLE decision."""
+        timestamp = datetime.now(timezone.utc).isoformat()
+        violation = {
+            "constraint_identity": "SYSTEM",
+            "canonical_form":      "gateway must be available",
+            "actual_value":        reason,
+            "expected":            "gateway available and request valid"
+        }
+        payload = json.dumps({
+            "status":     "GATEWAY_UNAVAILABLE",
+            "violations": [violation],
+            "output_id":  output_id,
+            "timestamp":  timestamp,
+        }, sort_keys=True)
+        decision_id = hashlib.sha256(payload.encode()).hexdigest()
+        return {
+            "status":      "GATEWAY_UNAVAILABLE",
+            "violations":  [violation],
+            "decision_id": decision_id,
+            "output_id":   output_id,
+            "timestamp":   timestamp,
+        }
+    # ═══════════════════════════════════════════════════════════════
+    # END GAP‑21 PATCH
+    # ═══════════════════════════════════════════════════════════════
+
     def _build_decision(self, status, violations, output_id, timestamp):
         record_for_hash = {"status":status,"violations":violations,"output_id":output_id,"timestamp":timestamp}
         canonical_json = json.dumps(record_for_hash, sort_keys=True, separators=(",",":"))
@@ -233,7 +295,7 @@ def evaluate_canonical_form(canonical_form, bindings):
         return True
     def get_review_queue(self):
         return list(self._review_queue)
-      # ----------------------------- test harness -----------------------------
+      # ----------------------------- original test harness -----------------------------
 PASS = FAIL = 0
 def check(name, ok, detail=""):
     global PASS, FAIL
@@ -377,7 +439,119 @@ for label,d in [("ALLOW",d_allow),("BLOCK",d_block)]:
     for v in d["violations"]:
         check(f"{label} violation entry has required keys", set(v.keys())=={"constraint_identity","canonical_form","actual_value","expected"})
 
-print(f"\n{'='*60}\n  ALIGNMENT VERIFICATION SUMMARY\n{'='*60}")
-print(f"  Total : {PASS+FAIL}\n  Passed: {PASS}\n  Failed: {FAIL}")
-if FAIL==0: print("  ✓ ALL INVARIANTS PASS — Phase 4 engine is ALIGNED.\n")
-else: print(f"  ✗ {FAIL} INVARIANT(S) FAILED — Engine is NOT aligned.\n")
+# ═══════════════════════════════════════════════════════════════
+# GAP‑21 Tests — using the SAME fresh_gw() helper & MULTI_CONTRACT
+# ═══════════════════════════════════════════════════════════════
+print("\n=== GAP-21 Fail-Safe Tests ===\n")
+
+gap21_pass = gap21_fail = 0
+
+# ── Test 1: Normal ALLOW through the patched gateway ──
+gw_allow = fresh_gw(MULTI_CONTRACT)
+res_allow = gw_allow.check_output({"bindings":{"x":6,"y":5},"output_id":"t01"})
+if res_allow["status"] == "ALLOW":
+    print("  PASS  GAP-21 | valid ALLOW request passes through normally")
+    gap21_pass += 1
+else:
+    print(f"  FAIL  GAP-21 | valid ALLOW request got {res_allow['status']} instead of ALLOW")
+    gap21_fail += 1
+
+# ── Test 2: Normal BLOCK through the patched gateway ──
+gw_block = fresh_gw(MULTI_CONTRACT)
+res_block = gw_block.check_output({"bindings":{"x":5,"y":5},"output_id":"t02"})
+if res_block["status"] == "BLOCK":
+    print("  PASS  GAP-21 | valid BLOCK request passes through normally")
+    gap21_pass += 1
+else:
+    print(f"  FAIL  GAP-21 | valid BLOCK request got {res_block['status']} instead of BLOCK")
+    gap21_fail += 1
+
+# ── Tests 3‑4: Requests that are not a dict or are None ──
+for label, req, expected in [
+    ("request is not a dict", "this is a string not a dict", "GATEWAY_UNAVAILABLE"),
+    ("request is None", None, "GATEWAY_UNAVAILABLE"),
+]:
+    gw = fresh_gw(MULTI_CONTRACT)
+    res = gw.check_output(req)
+    if res["status"] == expected:
+        print(f"  PASS  GAP-21 | {label}")
+        gap21_pass += 1
+    else:
+        print(f"  FAIL  GAP-21 | {label} got {res['status']} instead of {expected}")
+        gap21_fail += 1
+
+# ── Tests 5‑8: Dict requests with missing or malformed bindings ──
+# The original engine returns BLOCK for these, not GATEWAY_UNAVAILABLE.
+for label, req, expected in [
+    ("bindings key missing → BLOCK", {"output_id":"t05"}, "BLOCK"),
+    ("bindings is None → BLOCK", {"output_id":"t06","bindings":None}, "BLOCK"),
+    ("bindings is a string → BLOCK", {"output_id":"t07","bindings":"age=35"}, "BLOCK"),
+    ("bindings is a list → BLOCK", {"output_id":"t08","bindings":[35,8]}, "BLOCK"),
+]:
+    gw = fresh_gw(MULTI_CONTRACT)
+    res = gw.check_output(req)
+    if res["status"] == expected:
+        print(f"  PASS  GAP-21 | {label}")
+        gap21_pass += 1
+    else:
+        print(f"  FAIL  GAP-21 | {label} got {res['status']} instead of {expected}")
+        gap21_fail += 1
+
+# ── Tests 9‑10: GATEWAY_UNAVAILABLE structural verification ──
+for label, req in [
+    ("GATEWAY_UNAVAILABLE structure — not a dict", "bad string"),
+    ("GATEWAY_UNAVAILABLE structure — None", None),
+]:
+    gw = fresh_gw(MULTI_CONTRACT)
+    unavail = gw.check_output(req)
+    required_keys = {"status","violations","decision_id","output_id","timestamp"}
+    has_keys = required_keys.issubset(unavail.keys())
+    is_list = isinstance(unavail.get("violations"), list)
+    has_viol = len(unavail.get("violations",[])) > 0
+    viol_keys = {"constraint_identity","canonical_form","actual_value","expected"}
+    viol_complete = viol_keys.issubset(unavail["violations"][0].keys()) if has_viol else False
+    all_ok = has_keys and is_list and has_viol and viol_complete
+    if all_ok:
+        print(f"  PASS  GAP-21 | {label}")
+        gap21_pass += 1
+    else:
+        print(f"  FAIL  GAP-21 | {label}  —  keys:{has_keys} list:{is_list} nonempty:{has_viol} viol_keys:{viol_complete}")
+        gap21_fail += 1
+
+# ── Additional structural checks on a known GATEWAY_UNAVAILABLE response ──
+gw_check = fresh_gw(MULTI_CONTRACT)
+unavail = gw_check.check_output(None)
+struct_checks = [
+    ("GATEWAY_UNAVAILABLE has all required top-level keys",
+     {"status","violations","decision_id","output_id","timestamp"}.issubset(unavail.keys())),
+    ("violations is a list",
+     isinstance(unavail.get("violations"), list)),
+    ("violations list is non-empty",
+     len(unavail.get("violations",[])) > 0),
+    ("violation object has all required keys",
+     {"constraint_identity","canonical_form","actual_value","expected"}.issubset(
+         unavail["violations"][0].keys()) if unavail.get("violations") else False),
+    ("decision_id is non-empty string",
+     isinstance(unavail.get("decision_id"), str) and len(unavail.get("decision_id","")) > 0),
+]
+for label, cond in struct_checks:
+    if cond:
+        print(f"  PASS  GAP-21 | {label}")
+        gap21_pass += 1
+    else:
+        print(f"  FAIL  GAP-21 | {label}")
+        gap21_fail += 1
+
+total_gap21 = gap21_pass + gap21_fail
+print(f"\n=== GAP-21 Results: {gap21_pass}/{total_gap21} passed ===")
+if gap21_fail > 0:
+    print("FAIL — do not commit")
+else:
+    print("ALL GAP-21 TESTS PASSED — ready for PR")
+
+print("\n" + "="*60)
+print(f"COMBINED RESULTS: {PASS+gap21_pass} passed, {FAIL+gap21_fail} failed")
+if FAIL == 0 and gap21_fail == 0:
+    print("  ✓ ALL TESTS PASS — Phase 4 engine with GAP‑21 patch is ALIGNED.\n")
+else:
+    print(f"  ✗ {FAIL+gap21_fail} FAILURE(S) — Engine is NOT aligned.\n")
