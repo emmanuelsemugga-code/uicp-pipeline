@@ -18,6 +18,7 @@ def export_audit_bundle(
     gateway_public_key_hex: str,
     operator_public_key_hex: str,
     output_dir: str,
+    anchor_record: dict = None,
 ) -> str:
     """Write a complete audit bundle.  Returns the export_id."""
     os.makedirs(output_dir, exist_ok=True)
@@ -64,6 +65,12 @@ def export_audit_bundle(
     # Commitment
     with open(os.path.join(output_dir, "constraint_commitment.json"), "w") as f:
         json.dump(commitment, f, indent=2)
+
+    # GAP-12: External audit anchor record
+    if anchor_record is not None:
+        anchor_path = os.path.join(output_dir, "anchor_record.json")
+        with open(anchor_path, "w") as f:
+            json.dump(anchor_record, f, indent=2)
 
     return export_id
 
