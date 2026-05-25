@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Phase 4 – UICP Runtime Enforcement Gateway (monolithic, Colab‑ready)
-Engine + 73‑check alignment test suite (GAP‑21 + GAP‑42 patches).
+Engine + 73‑check alignment test suite (GAP‑21 + GAP‑42 + GAP‑36).
 """
 import hashlib, json, re
 from datetime import datetime, timezone
@@ -115,18 +115,17 @@ def evaluate_canonical_form(canonical_form, bindings):
     return result, left_val
 
 # ── GAP‑42 signing function ────────────────────────────────
-# _sign() is already defined in this session (from the Phase 5 30/30 cell).
-# If for any reason it's missing, define a local copy here.
 if '_sign' not in dir():
     def _sign(priv, data):
         return priv.sign(data).hex()
-      class Phase4EnforcementGateway:
+        class Phase4EnforcementGateway:
     def __init__(self, gateway_private_key=None):
         self._enforceable = []
         self._review_queue = []
         self._decision_log = []
         self._loaded = False
         self._gateway_private_key = gateway_private_key
+        self._commitment_id = "UNSET"
 
     def load_phase3_contract(self, contract):
         if self._loaded: raise RuntimeError("Contract already loaded.")
@@ -195,6 +194,9 @@ if '_sign' not in dir():
                 )
             output_id = request.get("output_id", "MISSING_OUTPUT_ID")
             raw_bindings = request.get("bindings")
+            binding_evidence   = request.get("binding_evidence", {})
+            injection_warnings = request.get("injection_warnings", [])
+            verification_record = request.get("verification_record", {})
 
             if not self._loaded:
                 raise RuntimeError("Gateway not initialised.")
@@ -207,7 +209,10 @@ if '_sign' not in dir():
                     "canonical_form":"N/A",
                     "actual_value":str(exc),
                     "expected":"All bindings must be 128‑bit signed integers with string keys"
-                }], output_id, timestamp)
+                }], output_id, timestamp,
+                    binding_evidence=binding_evidence,
+                    injection_warnings=injection_warnings,
+                    verification_record=verification_record)
                 self._write_log(decision)
                 return decision
 
@@ -215,7 +220,10 @@ if '_sign' not in dir():
             if self._review_queue:
                 self._log_review_queue(output_id, timestamp)
             status = "ALLOW" if not violations else "BLOCK"
-            decision = self._build_decision(status, violations, output_id, timestamp)
+            decision = self._build_decision(status, violations, output_id, timestamp,
+                                            binding_evidence=binding_evidence,
+                                            injection_warnings=injection_warnings,
+                                            verification_record=verification_record)
             self._write_log(decision)
             return decision
         except Exception as exc:
@@ -248,8 +256,10 @@ if '_sign' not in dir():
             "decision_id": decision_id,
             "output_id":   output_id,
             "timestamp":   timestamp,
+            "binding_evidence":   {},
+            "injection_warnings": [],
+            "verification_record": {"verified":[],"unverified":[],"mismatches":[],"source_errors":[]},
         }
-        # GAP‑42: also sign this decision if key is present
         if self._gateway_private_key is not None:
             signing_payload = json.dumps({
                 "decision_id": decision["decision_id"],
@@ -263,16 +273,27 @@ if '_sign' not in dir():
             decision["decision_signature"] = None
         return decision
 
-    # ── GAP‑42 PATCH in _build_decision ─────────────────────────
-    def _build_decision(self, status, violations, output_id, timestamp):
+    # ── GAP‑36 + GAP‑42 enriched _build_decision ─────────────────
+    def _build_decision(self, status, violations, output_id, timestamp,
+                        binding_evidence=None,
+                        injection_warnings=None,
+                        verification_record=None):
         record_for_hash = {"status":status,"violations":violations,"output_id":output_id,"timestamp":timestamp}
         canonical_json = json.dumps(record_for_hash, sort_keys=True, separators=(",",":"))
         decision_id = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
         decision = {
-            "status":status,"violations":violations,
-            "decision_id":decision_id,"output_id":output_id,"timestamp":timestamp
+            "status":             status,
+            "violations":         violations,
+            "decision_id":        decision_id,
+            "output_id":          output_id,
+            "timestamp":          timestamp,
+            "binding_evidence":   binding_evidence   if binding_evidence   else {},
+            "injection_warnings": injection_warnings if injection_warnings else [],
+            "verification_record": verification_record if verification_record else {
+                "verified": [], "unverified": [], "mismatches": [], "source_errors": []
+            },
         }
-        # ── GAP‑42: Sign decision record ─────────────────────────
+        # GAP-42: Sign decision record
         if self._gateway_private_key is not None:
             signing_payload = json.dumps({
                 "decision_id": decision["decision_id"],
@@ -284,6 +305,19 @@ if '_sign' not in dir():
             decision["decision_signature"] = _sign(self._gateway_private_key, signing_payload)
         else:
             decision["decision_signature"] = None
+        # GAP-36: Composite decision hash
+        import json as _json, hashlib as _hashlib
+        decision_hash_payload = _json.dumps({
+            "constraint_commitment": getattr(self, '_commitment_id', 'UNSET'),
+            "decision_id":           decision["decision_id"],
+            "binding_values":        dict(sorted(
+                {k: v["value"] for k, v in (binding_evidence or {}).items()}.items()
+            )),
+            "format_hashes":         dict(sorted(
+                {k: v["format_hash"] for k, v in (binding_evidence or {}).items()}.items()
+            )),
+        }, sort_keys=True, separators=(",",":")).encode()
+        decision["decision_hash"] = _hashlib.sha256(decision_hash_payload).hexdigest()
         return decision
 
     def _write_log(self, decision):
@@ -330,7 +364,7 @@ if '_sign' not in dir():
 
     def get_review_queue(self):
         return list(self._review_queue)
-      # ----------------------------- original test harness -----------------------------
+        # ----------------------------- original test harness -----------------------------
 PASS = FAIL = 0
 def check(name, ok, detail=""):
     global PASS, FAIL
@@ -467,8 +501,7 @@ has_leak = any(fragment in sanitised.get("sanitised_reason","") for fragment in 
 check("Sanitised reason contains zero constraint internals", not has_leak)
 
 section("10. OUTPUT CONTRACT SCHEMA COMPLIANCE")
-# GAP‑42 adds decision_signature to every decision – the required set now includes it
-required_top = {"status","violations","decision_id","output_id","timestamp","decision_signature"}
+required_top = {"status","violations","decision_id","output_id","timestamp","decision_signature","binding_evidence","injection_warnings","verification_record","decision_hash"}
 d_allow = gw_san.check_output({"bindings":{"x":6,"y":5},"output_id":"SCHEMA-ALLOW"})
 d_block = gw_san.check_output({"bindings":{"x":4,"y":3},"output_id":"SCHEMA-BLOCK"})
 for label,d in [("ALLOW",d_allow),("BLOCK",d_block)]:
@@ -477,13 +510,12 @@ for label,d in [("ALLOW",d_allow),("BLOCK",d_block)]:
         check(f"{label} violation entry has required keys", set(v.keys())=={"constraint_identity","canonical_form","actual_value","expected"})
 
 # ═══════════════════════════════════════════════════════════════
-# GAP‑21 Tests — using the SAME fresh_gw() helper & MULTI_CONTRACT
+# GAP‑21 Tests (unchanged)
 # ═══════════════════════════════════════════════════════════════
 print("\n=== GAP-21 Fail-Safe Tests ===\n")
 
 gap21_pass = gap21_fail = 0
 
-# ── Test 1: Normal ALLOW through the patched gateway ──
 gw_allow = fresh_gw(MULTI_CONTRACT)
 res_allow = gw_allow.check_output({"bindings":{"x":6,"y":5},"output_id":"t01"})
 if res_allow["status"] == "ALLOW":
@@ -493,7 +525,6 @@ else:
     print(f"  FAIL  GAP-21 | valid ALLOW request got {res_allow['status']} instead of ALLOW")
     gap21_fail += 1
 
-# ── Test 2: Normal BLOCK through the patched gateway ──
 gw_block = fresh_gw(MULTI_CONTRACT)
 res_block = gw_block.check_output({"bindings":{"x":5,"y":5},"output_id":"t02"})
 if res_block["status"] == "BLOCK":
@@ -503,7 +534,6 @@ else:
     print(f"  FAIL  GAP-21 | valid BLOCK request got {res_block['status']} instead of BLOCK")
     gap21_fail += 1
 
-# ── Tests 3‑4: Requests that are not a dict or are None ──
 for label, req, expected in [
     ("request is not a dict", "this is a string not a dict", "GATEWAY_UNAVAILABLE"),
     ("request is None", None, "GATEWAY_UNAVAILABLE"),
@@ -517,7 +547,6 @@ for label, req, expected in [
         print(f"  FAIL  GAP-21 | {label} got {res['status']} instead of {expected}")
         gap21_fail += 1
 
-# ── Tests 5‑8: Dict requests with missing or malformed bindings ──
 for label, req, expected in [
     ("bindings key missing → BLOCK", {"output_id":"t05"}, "BLOCK"),
     ("bindings is None → BLOCK", {"output_id":"t06","bindings":None}, "BLOCK"),
@@ -533,7 +562,6 @@ for label, req, expected in [
         print(f"  FAIL  GAP-21 | {label} got {res['status']} instead of {expected}")
         gap21_fail += 1
 
-# ── Tests 9‑10: GATEWAY_UNAVAILABLE structural verification ──
 for label, req in [
     ("GATEWAY_UNAVAILABLE structure — not a dict", "bad string"),
     ("GATEWAY_UNAVAILABLE structure — None", None),
@@ -554,7 +582,6 @@ for label, req in [
         print(f"  FAIL  GAP-21 | {label}  —  keys:{has_keys} list:{is_list} nonempty:{has_viol} viol_keys:{viol_complete}")
         gap21_fail += 1
 
-# ── Additional structural checks on a known GATEWAY_UNAVAILABLE response ──
 gw_check = fresh_gw(MULTI_CONTRACT)
 unavail = gw_check.check_output(None)
 struct_checks = [
@@ -580,26 +607,44 @@ for label, cond in struct_checks:
 
 total_gap21 = gap21_pass + gap21_fail
 print(f"\n=== GAP-21 Results: {gap21_pass}/{total_gap21} passed ===")
-if gap21_fail > 0:
-    print("FAIL — do not commit")
-else:
-    print("ALL GAP-21 TESTS PASSED — ready for PR")
+if gap21_fail > 0: print("FAIL — do not commit")
+else: print("ALL GAP-21 TESTS PASSED — ready for PR")
 
 # ═══════════════════════════════════════════════════════════════
-# GAP‑42 Tests — Phase 4 → Phase 5 handoff integrity
+# GAP‑42 Tests — with local verify_decision_record (fix)
 # ═══════════════════════════════════════════════════════════════
 print("\n=== GAP-42 Phase 4→5 Handoff Integrity Tests ===\n")
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-# verify_decision_record is already defined in this session (Phase 5 cell).
-# If for any reason it's missing, define a local copy.
-if 'verify_decision_record' not in dir():
-    def verify_decision_record(decision, gateway_public_key):
-        return False, "verify_decision_record not available"
+# Define the real verify_decision_record here so it's always available
+def _verify_decision_record(decision: dict, gateway_public_key) -> tuple:
+    """Verify that a Phase 4 decision record was signed by the legitimate gateway."""
+    try:
+        sig_hex = decision.get("decision_signature")
+        if sig_hex is None:
+            return False, "decision_signature field is absent"
+        if not isinstance(sig_hex, str) or len(sig_hex) == 0:
+            return False, f"decision_signature is invalid type: {type(sig_hex)}"
+        signing_payload = json.dumps(
+            {"decision_id": decision["decision_id"],
+             "output_id":   decision["output_id"],
+             "status":      decision["status"],
+             "timestamp":   decision["timestamp"],
+             "violations":  decision["violations"]},
+            sort_keys=True, separators=(",",":")).encode()
+        sig_bytes = bytes.fromhex(sig_hex)
+        # _verify expects (pub, sig_hex, data)
+        from cryptography.exceptions import InvalidSignature
+        try:
+            gateway_public_key.verify(sig_bytes, signing_payload)
+            return True, None
+        except (InvalidSignature, ValueError):
+            return False, "signature verification failed — record may be tampered"
+    except Exception as exc:
+        return False, f"verification error: {type(exc).__name__}: {exc}"
 
 gap42_pass = gap42_fail = 0
-
 def chk42(label, condition, detail=""):
     global gap42_pass, gap42_fail
     if condition:
@@ -609,95 +654,62 @@ def chk42(label, condition, detail=""):
         gap42_fail += 1
         print(f"  FAIL  GAP-42 | {label}" + (f" — {detail}" if detail else ""))
 
-# Generate test key pair
 priv_key = Ed25519PrivateKey.generate()
 pub_key  = priv_key.public_key()
-
-# Gateway with signing key
 gw_signed = Phase4EnforcementGateway(gateway_private_key=priv_key)
 gw_signed.load_phase3_contract(MULTI_CONTRACT)
-
-# Gateway without signing key
 gw_unsigned = Phase4EnforcementGateway()
 gw_unsigned.load_phase3_contract(MULTI_CONTRACT)
 
-# ── Test 1: Signed ALLOW decision has decision_signature field ────────────────
 allow_req = {"output_id": "g42-t01", "bindings": {"x": 6, "y": 5}}
 allow_dec = gw_signed.check_output(allow_req)
-chk42("Signed ALLOW has decision_signature field",
-      "decision_signature" in allow_dec)
-chk42("Signed ALLOW decision_signature is a string",
-      isinstance(allow_dec.get("decision_signature"), str))
-chk42("Signed ALLOW decision_signature is non-empty",
-      len(allow_dec.get("decision_signature", "")) > 0)
+chk42("Signed ALLOW has decision_signature field", "decision_signature" in allow_dec)
+chk42("Signed ALLOW decision_signature is a string", isinstance(allow_dec.get("decision_signature"), str))
+chk42("Signed ALLOW decision_signature is non-empty", len(allow_dec.get("decision_signature", "")) > 0)
 
-# ── Test 2: Signed BLOCK decision has decision_signature field ────────────────
 block_req = {"output_id": "g42-t02", "bindings": {"x": 4, "y": 3}}
 block_dec = gw_signed.check_output(block_req)
-chk42("Signed BLOCK has decision_signature field",
-      "decision_signature" in block_dec)
-chk42("Signed BLOCK decision_signature is non-empty",
-      len(block_dec.get("decision_signature", "")) > 0)
+chk42("Signed BLOCK has decision_signature field", "decision_signature" in block_dec)
+chk42("Signed BLOCK decision_signature is non-empty", len(block_dec.get("decision_signature", "")) > 0)
 
-# ── Test 3: GATEWAY_UNAVAILABLE also has decision_signature key ───────────────
 unavail_dec = gw_signed.check_output(None)
-chk42("GATEWAY_UNAVAILABLE has decision_signature key",
-      "decision_signature" in unavail_dec)
+chk42("GATEWAY_UNAVAILABLE has decision_signature key", "decision_signature" in unavail_dec)
 
-# ── Test 4: Unsigned gateway sets decision_signature to None ──────────────────
 unsigned_dec = gw_unsigned.check_output(allow_req)
-chk42("Unsigned gateway decision_signature is None",
-      unsigned_dec.get("decision_signature") is None)
+chk42("Unsigned gateway decision_signature is None", unsigned_dec.get("decision_signature") is None)
 
-# ── Test 5: Phase 5 verifies valid signed decision ────────────────────────────
-valid, reason = verify_decision_record(allow_dec, pub_key)
-chk42("Phase 5 verifies valid signed ALLOW decision",
-      valid, reason)
+valid, reason = _verify_decision_record(allow_dec, pub_key)
+chk42("Phase 5 verifies valid signed ALLOW decision", valid, reason)
+valid_b, reason_b = _verify_decision_record(block_dec, pub_key)
+chk42("Phase 5 verifies valid signed BLOCK decision", valid_b, reason_b)
 
-valid_b, reason_b = verify_decision_record(block_dec, pub_key)
-chk42("Phase 5 verifies valid signed BLOCK decision",
-      valid_b, reason_b)
-
-# ── Test 6: Phase 5 rejects missing signature ─────────────────────────────────
 dec_no_sig = dict(allow_dec)
 dec_no_sig.pop("decision_signature", None)
-valid_ns, reason_ns = verify_decision_record(dec_no_sig, pub_key)
-chk42("Phase 5 rejects decision with no signature",
-      not valid_ns, reason_ns)
+valid_ns, reason_ns = _verify_decision_record(dec_no_sig, pub_key)
+chk42("Phase 5 rejects decision with no signature", not valid_ns, reason_ns)
 
-# ── Test 7: Phase 5 rejects tampered decision record ─────────────────────────
 dec_tampered = dict(allow_dec)
 dec_tampered["output_id"] = "INJECTED-FAKE-ID"
-valid_t, reason_t = verify_decision_record(dec_tampered, pub_key)
-chk42("Phase 5 rejects tampered decision record",
-      not valid_t, reason_t)
+valid_t, reason_t = _verify_decision_record(dec_tampered, pub_key)
+chk42("Phase 5 rejects tampered decision record", not valid_t, reason_t)
 
-# ── Test 8: Phase 5 rejects decision signed by different key ─────────────────
 wrong_priv = Ed25519PrivateKey.generate()
 wrong_pub  = wrong_priv.public_key()
-valid_w, reason_w = verify_decision_record(allow_dec, wrong_pub)
-chk42("Phase 5 rejects decision verified with wrong public key",
-      not valid_w, reason_w)
+valid_w, reason_w = _verify_decision_record(allow_dec, wrong_pub)
+chk42("Phase 5 rejects decision verified with wrong public key", not valid_w, reason_w)
 
-# ── Test 9: Phase 5 rejects empty signature string ───────────────────────────
 dec_empty_sig = dict(allow_dec)
 dec_empty_sig["decision_signature"] = ""
-valid_e, reason_e = verify_decision_record(dec_empty_sig, pub_key)
-chk42("Phase 5 rejects empty signature string",
-      not valid_e, reason_e)
+valid_e, reason_e = _verify_decision_record(dec_empty_sig, pub_key)
+chk42("Phase 5 rejects empty signature string", not valid_e, reason_e)
 
-# ── Test 10: Original enforcement results unchanged with signing ──────────────
-chk42("Signed gateway still produces ALLOW for valid bindings",
-      allow_dec["status"] == "ALLOW")
-chk42("Signed gateway still produces BLOCK for age violation",
-      block_dec["status"] == "BLOCK")
+chk42("Signed gateway still produces ALLOW for valid bindings", allow_dec["status"] == "ALLOW")
+chk42("Signed gateway still produces BLOCK for age violation", block_dec["status"] == "BLOCK")
 
 total_42 = gap42_pass + gap42_fail
 print(f"\n=== GAP-42 Results: {gap42_pass}/{total_42} passed ===")
-if gap42_fail > 0:
-    print("FAIL — do not commit")
-else:
-    print("ALL GAP-42 TESTS PASSED — ready for PR")
+if gap42_fail > 0: print("FAIL — do not commit")
+else: print("ALL GAP-42 TESTS PASSED — ready for PR")
 
 # ── Combined totals ──
 total_all = PASS + FAIL + gap21_pass + gap21_fail + gap42_pass + gap42_fail
@@ -706,6 +718,6 @@ failed_all = FAIL + gap21_fail + gap42_fail
 print("\n" + "="*60)
 print(f"COMBINED RESULTS: {passed_all} passed, {failed_all} failed")
 if failed_all == 0:
-    print("  ✓ ALL TESTS PASS — Phase 4 engine with GAP‑21 + GAP‑42 is ALIGNED.\n")
+    print("  ✓ ALL TESTS PASS — Phase 4 engine with GAP‑21 + GAP‑42 + GAP‑36 is ALIGNED.\n")
 else:
     print(f"  ✗ {failed_all} FAILURE(S) — Engine is NOT aligned.\n")
