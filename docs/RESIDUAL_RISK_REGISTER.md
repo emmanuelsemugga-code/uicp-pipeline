@@ -40,3 +40,28 @@ values satisfy constraints but misrepresent actual applicant data.
 **Review cadence:** Quarterly
 **Last reviewed:** May 2026
 **Next review due:** August 2026
+## Risk ID: GDPR_ERASURE_RESIDUAL
+
+**Description:**
+Personal binding values extracted from model outputs are stored
+off-chain in personal_data_store.json. The audit chain stores only
+SHA-256 hash pointers. GDPR Article 17 erasure deletes raw values
+from the off-chain store while preserving chain integrity.
+
+**Residual risk:**
+The off-chain store is a JSON file. Production deployments must
+replace this with an encrypted database with proper access controls.
+Loss of the off-chain store before erasure requests are processed
+means personal data cannot be confirmed as erased.
+
+**Treatment:**
+- Encrypt personal_data_store.json at rest — AES-256
+- Apply filesystem access controls — gateway writes only
+- Back up the store separately from the audit chain
+- Process erasure requests within 30 days per GDPR Article 17
+- Upgrade to encrypted database before first regulated deployment
+
+**Owner:** Data Protection Officer or equivalent
+**Review cadence:** Quarterly
+**Last reviewed:** May 2026
+**Next review due:** August 2026
