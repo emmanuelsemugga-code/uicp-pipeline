@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 phase5_engine.py – UICP Phase 5 Trust & Audit Engine
-GAP‑42 + GAP‑12 + GAP‑11 (two‑person signing) + 64‑test harness.
+GAP‑42 + GAP‑12 + GAP‑11 + GAP‑13/14 + 89‑test harness.
 """
-import hashlib, json
-from datetime import datetime, timezone
+import hashlib, json, os
+from datetime import datetime, timezone, timedelta
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.exceptions import InvalidSignature
 
@@ -43,6 +43,150 @@ def accept_phase4_log(decision_log, chain_valid):
 
 class CommitmentError(Exception): pass
 
+# ═══════════════════ GAP‑13 + GAP‑14: KeyLifecycleManager ═══════════════════
+class KeyLifecycleManager:
+    STATUS_ACTIVE  = "ACTIVE"
+    STATUS_ROTATED = "ROTATED"
+    STATUS_REVOKED = "REVOKED"
+    STATUS_EXPIRED = "EXPIRED"
+    DEFAULT_VALIDITY_MONTHS = 12
+
+    def __init__(self, validity_months: int = DEFAULT_VALIDITY_MONTHS):
+        if validity_months < 1 or validity_months > 120:
+            raise ValueError("validity_months must be between 1 and 120")
+        self._validity_months = validity_months
+        self._keys: dict = {}
+
+    @staticmethod
+    def compute_key_id(public_key) -> str:
+        import hashlib
+        pub_bytes = public_key.public_bytes_raw()
+        return hashlib.sha256(pub_bytes).hexdigest()
+
+    def generate_key(self, operator_id: str, environment: str = "development") -> dict:
+        if environment not in ("development", "staging", "production"):
+            raise ValueError("environment must be: development, staging, or production")
+        private_key = Ed25519PrivateKey.generate()
+        public_key  = private_key.public_key()
+        key_id      = self.compute_key_id(public_key)
+        now         = datetime.now(timezone.utc)
+        expires_at  = now + timedelta(days=self._validity_months * 30)
+        key_record = {
+            "key_id":         key_id,
+            "operator_id":    operator_id,
+            "environment":    environment,
+            "status":         self.STATUS_ACTIVE,
+            "created_at":     now.isoformat(),
+            "expires_at":     expires_at.isoformat(),
+            "rotated_at":     None,
+            "revoked_at":     None,
+            "revocation_reason": None,
+            "replaced_by":    None,
+            "replaces":       None,
+            "validity_months": self._validity_months,
+            "_private_key":   private_key,
+            "_public_key":    public_key,
+            "storage_spec":   self._storage_spec(environment),
+        }
+        self._keys[key_id] = key_record
+        return key_record
+
+    @staticmethod
+    def _storage_spec(environment: str) -> str:
+        specs = {
+            "development": "IN-MEMORY ONLY. Keys are ephemeral. Fresh key pair generated each session. Acceptable for development and testing only.",
+            "staging": "ENCRYPTED FILE. AES-256-GCM. Encryption key stored in environment variable KEY_ENCRYPTION_KEY — never in the same file. File path: /secrets/operator_key.enc Rotate every 12 months or on suspected compromise.",
+            "production": "HARDWARE SECURITY MODULE (HSM) or KMS REQUIRED. Private key never leaves the HSM. Sign operations are performed inside the HSM. Public key exported for verification. Acceptable alternatives: AWS KMS, Azure Key Vault, Google Cloud KMS, HashiCorp Vault with HSM backend. NEVER store production private keys in files or env vars.",
+        }
+        return specs.get(environment, "UNKNOWN ENVIRONMENT")
+
+    def get_status(self, key_id: str) -> str:
+        if key_id not in self._keys:
+            raise KeyError(f"key_id '{key_id}' not found in registry")
+        record = self._keys[key_id]
+        if record["status"] == self.STATUS_REVOKED:
+            return self.STATUS_REVOKED
+        if record["status"] == self.STATUS_ROTATED:
+            return self.STATUS_ROTATED
+        expires_at = datetime.fromisoformat(record["expires_at"])
+        if datetime.now(timezone.utc) > expires_at:
+            self._keys[key_id]["status"] = self.STATUS_EXPIRED
+            return self.STATUS_EXPIRED
+        return self.STATUS_ACTIVE
+
+    def is_valid_for_signing(self, key_id: str) -> bool:
+        return self.get_status(key_id) == self.STATUS_ACTIVE
+
+    def is_valid_for_verification(self, key_id: str) -> bool:
+        status = self.get_status(key_id)
+        return status in (self.STATUS_ACTIVE, self.STATUS_ROTATED, self.STATUS_EXPIRED)
+
+    def rotate(self, old_key_id: str, operator_id: str, environment: str = "development") -> dict:
+        if old_key_id not in self._keys:
+            raise KeyError(f"key_id '{old_key_id}' not found")
+        old_status = self.get_status(old_key_id)
+        if old_status == self.STATUS_REVOKED:
+            raise ValueError("Cannot rotate a REVOKED key — generate a new key instead")
+        new_record = self.generate_key(operator_id, environment)
+        new_key_id = new_record["key_id"]
+        now = datetime.now(timezone.utc).isoformat()
+        self._keys[old_key_id]["status"]      = self.STATUS_ROTATED
+        self._keys[old_key_id]["rotated_at"]  = now
+        self._keys[old_key_id]["replaced_by"] = new_key_id
+        self._keys[new_key_id]["replaces"]    = old_key_id
+        return new_record
+
+    def revoke(self, key_id: str, reason: str) -> dict:
+        if key_id not in self._keys:
+            raise KeyError(f"key_id '{key_id}' not found")
+        if not reason or not isinstance(reason, str):
+            raise ValueError("revocation reason must be a non-empty string")
+        current_status = self._keys[key_id]["status"]
+        if current_status == self.STATUS_REVOKED:
+            return {"status": "ALREADY_REVOKED", "key_id": key_id, "revoked_at": self._keys[key_id]["revoked_at"]}
+        now = datetime.now(timezone.utc).isoformat()
+        self._keys[key_id]["status"]            = self.STATUS_REVOKED
+        self._keys[key_id]["revoked_at"]        = now
+        self._keys[key_id]["revocation_reason"] = reason
+        return {
+            "status": "REVOKED", "key_id": key_id,
+            "operator_id": self._keys[key_id]["operator_id"],
+            "revoked_at": now, "revocation_reason": reason,
+            "impact": "ALL signatures from this key are now rejected. Generate a new key and re-register immediately.",
+        }
+
+    def sign(self, key_id: str, payload: bytes) -> str:
+        if not self.is_valid_for_signing(key_id):
+            raise PermissionError(f"GAP-13: key '{key_id}' cannot sign — status is {self.get_status(key_id)}")
+        private_key = self._keys[key_id]["_private_key"]
+        return _sign(private_key, payload)
+
+    def verify(self, key_id: str, payload: bytes, signature: str) -> tuple:
+        if not self.is_valid_for_verification(key_id):
+            return False, f"GAP-13: key '{key_id}' is {self.get_status(key_id)} — signature verification rejected. REVOKED keys cannot verify any signature."
+        public_key = self._keys[key_id]["_public_key"]
+        crypto_valid = _verify(public_key, signature, payload)
+        if crypto_valid:
+            return True, None
+        return False, "signature verification failed — invalid signature"
+
+    def export_public_record(self, key_id: str) -> dict:
+        if key_id not in self._keys:
+            raise KeyError(f"key_id '{key_id}' not found")
+        record = self._keys[key_id]
+        pub_bytes = record["_public_key"].public_bytes_raw()
+        return {
+            "key_id": key_id, "operator_id": record["operator_id"],
+            "environment": record["environment"], "status": self.get_status(key_id),
+            "created_at": record["created_at"], "expires_at": record["expires_at"],
+            "rotated_at": record["rotated_at"], "revoked_at": record["revoked_at"],
+            "revocation_reason": record["revocation_reason"],
+            "replaced_by": record["replaced_by"], "replaces": record["replaces"],
+            "public_key_hex": pub_bytes.hex(),
+            "validity_months": record["validity_months"], "storage_spec": record["storage_spec"],
+        }
+
+# ═══════════════════ GAP‑11: OperatorRegistry ═══════════════════
 class OperatorRegistry:
     def __init__(self): self._operators = {}
     def register(self, operator_id, public_key):
@@ -64,17 +208,12 @@ def create_commitment(objective_id, objective_description, constraint_set_versio
     if len(constraint_set_hash) != 64: raise CommitmentError("constraint_set_hash must be 64-char hex")
     if operator_registry is not None and not operator_registry.is_registered(committed_by):
         raise PermissionError(f"GAP-11: '{committed_by}' is not a registered operator")
-
     preimage = {
-        "objective_id": objective_id,
-        "objective_description": objective_description,
-        "constraint_set_hash": constraint_set_hash,
-        "constraint_set_version": constraint_set_version,
-        "committed_at": committed_at,
-        "committed_by": committed_by,
+        "objective_id": objective_id, "objective_description": objective_description,
+        "constraint_set_hash": constraint_set_hash, "constraint_set_version": constraint_set_version,
+        "committed_at": committed_at, "committed_by": committed_by,
     }
     commitment_id = _sha256(_canonical_json(preimage))
-    # Sign the commitment_id (original behavior)
     signature = _sign(operator_private_key, commitment_id.encode("utf-8"))
     status = "PENDING" if operator_registry is not None else "ACTIVE"
     return {
@@ -88,12 +227,10 @@ def create_commitment(objective_id, objective_description, constraint_set_versio
 def verify_commitment(commitment, operator_public_key):
     ext = commitment.get("_extended", {})
     preimage = {
-        "objective_id": commitment["objective_id"],
-        "objective_description": ext.get("objective_description", ""),
+        "objective_id": commitment["objective_id"], "objective_description": ext.get("objective_description", ""),
         "constraint_set_hash": commitment["constraint_set_hash"],
         "constraint_set_version": ext.get("constraint_set_version", ""),
-        "committed_at": commitment["committed_at"],
-        "committed_by": commitment["committed_by"],
+        "committed_at": commitment["committed_at"], "committed_by": commitment["committed_by"],
     }
     expected = _sha256(_canonical_json(preimage))
     if expected != commitment["commitment_id"]: return False
@@ -219,7 +356,6 @@ class Phase5Engine:
         test_sig = _sign(second_private_key, test_payload)
         if not _verify(registered_pub, test_sig, test_payload):
             raise PermissionError(f"GAP-11: second_private_key does not match registered key for '{second_operator_id}'")
-
         countersign_payload = json.dumps({
             "commitment_id": commitment["commitment_id"],
             "second_committed_by": second_operator_id,
@@ -227,19 +363,14 @@ class Phase5Engine:
         }, sort_keys=True, separators=(",",":")).encode()
         second_signature = _sign(second_private_key, countersign_payload)
         activated_at = datetime.now(timezone.utc).isoformat()
-
         commitment["second_signature"] = second_signature
         commitment["second_committed_by"] = second_operator_id
         commitment["activated_at"] = activated_at
         commitment["status"] = "ACTIVE"
-
         activation_record = {
-            "event": "COMMITMENT_ACTIVATED",
-            "commitment_id": commitment["commitment_id"],
-            "first_operator": commitment["committed_by"],
-            "second_operator": second_operator_id,
-            "activated_at": activated_at,
-            "two_person_verified": True,
+            "event": "COMMITMENT_ACTIVATED", "commitment_id": commitment["commitment_id"],
+            "first_operator": commitment["committed_by"], "second_operator": second_operator_id,
+            "activated_at": activated_at, "two_person_verified": True,
         }
         self._audit._append(activation_record, "commitment_id")
         return commitment
@@ -248,8 +379,6 @@ class Phase5Engine:
         try:
             if commitment.get("status") != "ACTIVE":
                 return False, f"status is {commitment.get('status')}"
-
-            # ── GAP-11: Integrity check – recompute commitment_id from current fields ─
             ext = commitment.get("_extended", {})
             recomputed_id = _sha256(_canonical_json({
                 "objective_id": commitment["objective_id"],
@@ -261,17 +390,12 @@ class Phase5Engine:
             }))
             if recomputed_id != commitment["commitment_id"]:
                 return False, "commitment has been tampered – commitment_id mismatch"
-
-            # ── Verify first signature (over commitment_id) ─
             first_op = commitment.get("committed_by")
             if not operator_registry.is_registered(first_op):
                 return False, f"first operator '{first_op}' not registered"
             first_pub = operator_registry.get_public_key(first_op)
-            if not _verify(first_pub, commitment["signature"],
-                           commitment["commitment_id"].encode("utf-8")):
+            if not _verify(first_pub, commitment["signature"], commitment["commitment_id"].encode("utf-8")):
                 return False, "first signature invalid"
-
-            # ── Verify second signature ─
             second_op = commitment.get("second_committed_by")
             if not second_op or not operator_registry.is_registered(second_op):
                 return False, "second operator missing or not registered"
@@ -283,10 +407,8 @@ class Phase5Engine:
             }, sort_keys=True, separators=(",",":")).encode()
             if not _verify(second_pub, commitment["second_signature"], second_payload):
                 return False, "second signature invalid"
-
             if first_op == second_op:
                 return False, "same operator signed twice"
-
             return True, None
         except Exception as e:
             return False, f"verification error: {type(e).__name__}: {e}"
