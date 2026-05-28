@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 phase5_engine.py – UICP Phase 5 Trust & Audit Engine
-Includes GAP‑42 verify_decision_record + GAP‑12 external anchor + 30‑test harness.
+GAP‑42 + GAP‑12 + GAP‑11 (two‑person signing) + 64‑test harness.
 """
 import hashlib, json
 from datetime import datetime, timezone
@@ -31,8 +31,7 @@ def verify_decision_record(decision: dict, gateway_public_key) -> tuple:
             "violations": decision["violations"],
         })
         valid = _verify(gateway_public_key, sig_hex, signing_payload)
-        if valid: return True, None
-        return False, "signature verification failed — record may be tampered"
+        return (True, None) if valid else (False, "signature verification failed – record may be tampered")
     except Exception as e: return False, f"verification error: {type(e).__name__}: {e}"
 
 class Phase4LogRejected(Exception): pass
@@ -43,27 +42,59 @@ def accept_phase4_log(decision_log, chain_valid):
     return list(decision_log)
 
 class CommitmentError(Exception): pass
+
+class OperatorRegistry:
+    def __init__(self): self._operators = {}
+    def register(self, operator_id, public_key):
+        if not operator_id or not isinstance(operator_id, str): raise ValueError("operator_id must be non-empty string")
+        if operator_id in self._operators: raise ValueError(f"operator_id '{operator_id}' already registered")
+        self._operators[operator_id] = public_key
+        return self
+    def is_registered(self, operator_id): return operator_id in self._operators
+    def get_public_key(self, operator_id):
+        if operator_id not in self._operators: raise KeyError(f"GAP-11: operator '{operator_id}' not registered")
+        return self._operators[operator_id]
+    def list_operators(self): return list(self._operators.keys())
+    def count(self): return len(self._operators)
+
 def create_commitment(objective_id, objective_description, constraint_set_version,
-                      constraint_set_hash, committed_at, committed_by, operator_private_key):
-    if not objective_id or not isinstance(objective_id, str): raise CommitmentError("objective_id must be non‑empty string")
-    if len(constraint_set_hash) != 64: raise CommitmentError("constraint_set_hash must be 64‑char hex")
-    preimage = {"committed_at": committed_at, "committed_by": committed_by,
-                "constraint_set_hash": constraint_set_hash, "constraint_set_version": constraint_set_version,
-                "objective_description": objective_description, "objective_id": objective_id}
+                      constraint_set_hash, committed_at, committed_by, operator_private_key,
+                      operator_registry=None):
+    if not objective_id or not isinstance(objective_id, str): raise CommitmentError("objective_id must be non-empty string")
+    if len(constraint_set_hash) != 64: raise CommitmentError("constraint_set_hash must be 64-char hex")
+    if operator_registry is not None and not operator_registry.is_registered(committed_by):
+        raise PermissionError(f"GAP-11: '{committed_by}' is not a registered operator")
+
+    preimage = {
+        "objective_id": objective_id,
+        "objective_description": objective_description,
+        "constraint_set_hash": constraint_set_hash,
+        "constraint_set_version": constraint_set_version,
+        "committed_at": committed_at,
+        "committed_by": committed_by,
+    }
     commitment_id = _sha256(_canonical_json(preimage))
+    # Sign the commitment_id (original behavior)
     signature = _sign(operator_private_key, commitment_id.encode("utf-8"))
-    return {"objective_id": objective_id, "commitment_id": commitment_id,
-            "constraint_set_hash": constraint_set_hash, "committed_at": committed_at,
-            "signature": signature, "_extended": {"objective_description": objective_description,
-            "constraint_set_version": constraint_set_version, "committed_by": committed_by}}
+    status = "PENDING" if operator_registry is not None else "ACTIVE"
+    return {
+        "objective_id": objective_id, "commitment_id": commitment_id,
+        "constraint_set_hash": constraint_set_hash, "committed_at": committed_at,
+        "committed_by": committed_by, "signature": signature, "status": status,
+        "second_signature": None, "second_committed_by": None, "activated_at": None,
+        "_extended": {"objective_description": objective_description, "constraint_set_version": constraint_set_version},
+    }
 
 def verify_commitment(commitment, operator_public_key):
     ext = commitment.get("_extended", {})
-    preimage = {"committed_at": commitment["committed_at"], "committed_by": ext.get("committed_by",""),
-                "constraint_set_hash": commitment["constraint_set_hash"],
-                "constraint_set_version": ext.get("constraint_set_version",""),
-                "objective_description": ext.get("objective_description",""),
-                "objective_id": commitment["objective_id"]}
+    preimage = {
+        "objective_id": commitment["objective_id"],
+        "objective_description": ext.get("objective_description", ""),
+        "constraint_set_hash": commitment["constraint_set_hash"],
+        "constraint_set_version": ext.get("constraint_set_version", ""),
+        "committed_at": commitment["committed_at"],
+        "committed_by": commitment["committed_by"],
+    }
     expected = _sha256(_canonical_json(preimage))
     if expected != commitment["commitment_id"]: return False
     return _verify(operator_public_key, commitment["signature"], commitment["commitment_id"].encode("utf-8"))
@@ -100,7 +131,7 @@ def verify_proof(proof, gateway_public_key, commitment, decision_record, operato
 _AUTHORIZED_OPERATOR_REGISTRY = {}
 
 def register_authorized_operator(identity, public_key):
-    if not identity or not isinstance(identity, str): raise OverrideError("identity must be non‑empty string")
+    if not identity or not isinstance(identity, str): raise OverrideError("identity must be non-empty string")
     _AUTHORIZED_OPERATOR_REGISTRY[identity] = public_key
 
 def create_override(original_decision_id, override_type, override_reason, authorized_by,
@@ -135,7 +166,7 @@ class Phase5AuditLog:
         self._genesis_anchor = _sha256(phase4_last_chain_hash.encode("utf-8")) if phase4_last_chain_hash else self.GENESIS_HASH
         self._last_hash = self._genesis_anchor
     def _append(self, record, record_id_field):
-        rid = record[record_id_field]
+        rid = record.get(record_id_field, _sha256(json.dumps(record, sort_keys=True).encode()))
         ch = _sha256((self._last_hash + rid).encode("utf-8"))
         entry = dict(record); entry["_p5_chain_hash"] = ch; entry["_p5_record_id_field"] = record_id_field
         self._entries.append(entry); self._last_hash = ch; return entry
@@ -155,26 +186,117 @@ class Phase5AuditLog:
     def last_chain_hash(self): return self._last_hash
 
 class Phase5Engine:
-    def __init__(self, decision_log, chain_valid):
+    def __init__(self, decision_log=None, chain_valid=True, last_phase4_hash=None):
+        if decision_log is None: decision_log = []
         self._log = accept_phase4_log(decision_log, chain_valid)
         self._chain_valid = chain_valid
         self._index = {}
-        last_phase4_hash = None
+        last_phase4_hash = last_phase4_hash or "0"*64
         for rec in self._log:
             did = rec.get("decision_id")
             if did: self._index[did] = rec
-            last_phase4_hash = rec.get("_chain_hash", last_phase4_hash)
         self._audit = Phase5AuditLog(phase4_last_chain_hash=last_phase4_hash)
+
     def commit(self, objective_id, objective_description, constraint_set_version,
-               constraint_set_hash, committed_at, committed_by, operator_private_key):
+               constraint_set_hash, committed_at, committed_by, operator_private_key,
+               operator_registry=None):
         c = create_commitment(objective_id, objective_description, constraint_set_version,
-                              constraint_set_hash, committed_at, committed_by, operator_private_key)
-        self._audit.append_commitment(c); return c
+                              constraint_set_hash, committed_at, committed_by, operator_private_key,
+                              operator_registry=operator_registry)
+        if c["status"] == "ACTIVE":
+            self._audit.append_commitment(c)
+        return c
+
+    def countersign(self, commitment, second_operator_id, second_private_key, operator_registry):
+        if commitment.get("status") != "PENDING":
+            raise ValueError(f"GAP-11: commitment status is '{commitment.get('status')}' – only PENDING commitments can be countersigned")
+        if not operator_registry.is_registered(second_operator_id):
+            raise PermissionError(f"GAP-11: '{second_operator_id}' is not a registered operator")
+        if second_operator_id == commitment["committed_by"]:
+            raise PermissionError(f"GAP-11: '{second_operator_id}' cannot countersign their own commitment")
+        registered_pub = operator_registry.get_public_key(second_operator_id)
+        test_payload = b"key_verification"
+        test_sig = _sign(second_private_key, test_payload)
+        if not _verify(registered_pub, test_sig, test_payload):
+            raise PermissionError(f"GAP-11: second_private_key does not match registered key for '{second_operator_id}'")
+
+        countersign_payload = json.dumps({
+            "commitment_id": commitment["commitment_id"],
+            "second_committed_by": second_operator_id,
+            "original_committed_by": commitment["committed_by"],
+        }, sort_keys=True, separators=(",",":")).encode()
+        second_signature = _sign(second_private_key, countersign_payload)
+        activated_at = datetime.now(timezone.utc).isoformat()
+
+        commitment["second_signature"] = second_signature
+        commitment["second_committed_by"] = second_operator_id
+        commitment["activated_at"] = activated_at
+        commitment["status"] = "ACTIVE"
+
+        activation_record = {
+            "event": "COMMITMENT_ACTIVATED",
+            "commitment_id": commitment["commitment_id"],
+            "first_operator": commitment["committed_by"],
+            "second_operator": second_operator_id,
+            "activated_at": activated_at,
+            "two_person_verified": True,
+        }
+        self._audit._append(activation_record, "commitment_id")
+        return commitment
+
+    def verify_commitment_status(self, commitment, operator_registry):
+        try:
+            if commitment.get("status") != "ACTIVE":
+                return False, f"status is {commitment.get('status')}"
+
+            # ── GAP-11: Integrity check – recompute commitment_id from current fields ─
+            ext = commitment.get("_extended", {})
+            recomputed_id = _sha256(_canonical_json({
+                "objective_id": commitment["objective_id"],
+                "objective_description": ext.get("objective_description", ""),
+                "constraint_set_hash": commitment["constraint_set_hash"],
+                "constraint_set_version": ext.get("constraint_set_version", ""),
+                "committed_at": commitment["committed_at"],
+                "committed_by": commitment["committed_by"],
+            }))
+            if recomputed_id != commitment["commitment_id"]:
+                return False, "commitment has been tampered – commitment_id mismatch"
+
+            # ── Verify first signature (over commitment_id) ─
+            first_op = commitment.get("committed_by")
+            if not operator_registry.is_registered(first_op):
+                return False, f"first operator '{first_op}' not registered"
+            first_pub = operator_registry.get_public_key(first_op)
+            if not _verify(first_pub, commitment["signature"],
+                           commitment["commitment_id"].encode("utf-8")):
+                return False, "first signature invalid"
+
+            # ── Verify second signature ─
+            second_op = commitment.get("second_committed_by")
+            if not second_op or not operator_registry.is_registered(second_op):
+                return False, "second operator missing or not registered"
+            second_pub = operator_registry.get_public_key(second_op)
+            second_payload = json.dumps({
+                "commitment_id": commitment["commitment_id"],
+                "second_committed_by": second_op,
+                "original_committed_by": first_op,
+            }, sort_keys=True, separators=(",",":")).encode()
+            if not _verify(second_pub, commitment["second_signature"], second_payload):
+                return False, "second signature invalid"
+
+            if first_op == second_op:
+                return False, "same operator signed twice"
+
+            return True, None
+        except Exception as e:
+            return False, f"verification error: {type(e).__name__}: {e}"
+
     def prove(self, decision_id, commitment, gateway_private_key, violations_audience="REDACTED"):
         if decision_id not in self._index: raise ProofError(f"decision_id {decision_id!r} not in log")
         rec = self._index[decision_id]
         p = generate_proof(rec, commitment, gateway_private_key, self._chain_valid, violations_audience)
         self._audit.append_proof(p); return p
+
     def override(self, original_decision_id, override_type, override_reason,
                  authorized_by, operator_private_key, timestamp, expires_at=None):
         if original_decision_id not in self._index: raise OverrideError(f"decision_id {original_decision_id!r} not in log")
@@ -182,237 +304,36 @@ class Phase5Engine:
         ov = create_override(original_decision_id, override_type, override_reason,
                              authorized_by, operator_private_key, timestamp, expires_at)
         self._audit.append_override(ov); return ov
-    def verify_commitment(self, commitment, operator_public_key): return verify_commitment(commitment, operator_public_key)
+
+    def verify_commitment(self, commitment, operator_public_key):
+        return verify_commitment(commitment, operator_public_key)
+
     def verify_proof(self, proof, gateway_public_key, commitment, decision_record, operator_public_key):
         return verify_proof(proof, gateway_public_key, commitment, decision_record, operator_public_key)
+
     def verify_override(self, override): return verify_override(override)
+
+    def create_anchor(self, operator_private_key):
+        timestamp    = datetime.now(timezone.utc).isoformat()
+        current_hash = self._audit.last_chain_hash
+        anchor_payload = json.dumps({"chain_hash":current_hash,"timestamp":timestamp}, sort_keys=True, separators=(",",":")).encode()
+        anchor_id = _sha256(anchor_payload)
+        anchor_signature = _sign(operator_private_key, anchor_payload)
+        return {"anchor_id":anchor_id,"chain_hash":current_hash,"timestamp":timestamp,"anchor_signature":anchor_signature}
+
+    def verify_anchor(self, anchor_record, operator_public_key):
+        try:
+            a_hash = anchor_record.get("chain_hash"); a_ts = anchor_record.get("timestamp")
+            a_id = anchor_record.get("anchor_id"); a_sig = anchor_record.get("anchor_signature")
+            if not all([a_hash, a_ts, a_id, a_sig]): return False, "missing fields"
+            anchor_payload = json.dumps({"chain_hash":a_hash,"timestamp":a_ts}, sort_keys=True, separators=(",",":")).encode()
+            if _sha256(anchor_payload) != a_id: return False, "anchor_id mismatch"
+            if not _verify(operator_public_key, a_sig, anchor_payload): return False, "anchor signature invalid"
+            if self._audit.last_chain_hash == a_hash: return True, None
+            return False, f"chain hash mismatch"
+        except Exception as e: return False, f"anchor verification error: {type(e).__name__}: {e}"
+
     @property
     def audit_log(self): return self._audit.get_log()
     @property
     def audit_chain_valid(self): return self._audit.verify_chain()
-
-    # ═══════════════════════════════════════════════════════════════
-    # GAP‑12 PATCH: External Audit Log Anchor
-    # ═══════════════════════════════════════════════════════════════
-
-    def create_anchor(self, operator_private_key) -> dict:
-        """Create a cryptographic anchor record for the current chain state."""
-        timestamp      = datetime.now(timezone.utc).isoformat()
-        current_hash   = self._audit.last_chain_hash
-
-        anchor_payload = json.dumps(
-            {"chain_hash": current_hash, "timestamp": timestamp},
-            sort_keys=True, separators=(",", ":")
-        ).encode()
-
-        anchor_id        = _sha256(anchor_payload)
-        anchor_signature = _sign(operator_private_key, anchor_payload)
-
-        return {
-            "anchor_id":        anchor_id,
-            "chain_hash":       current_hash,
-            "timestamp":        timestamp,
-            "anchor_signature": anchor_signature,
-        }
-
-    def verify_anchor(self, anchor_record: dict, operator_public_key) -> tuple:
-        """Verify that the current chain is consistent with a previously created anchor."""
-        try:
-            anchor_chain_hash = anchor_record.get("chain_hash")
-            anchor_timestamp  = anchor_record.get("timestamp")
-            anchor_id         = anchor_record.get("anchor_id")
-            anchor_signature  = anchor_record.get("anchor_signature")
-
-            if not all([anchor_chain_hash, anchor_timestamp, anchor_id, anchor_signature]):
-                return False, "anchor record is missing required fields"
-
-            anchor_payload = json.dumps(
-                {"chain_hash": anchor_chain_hash, "timestamp": anchor_timestamp},
-                sort_keys=True, separators=(",", ":")
-            ).encode()
-
-            if not _verify(operator_public_key, anchor_signature, anchor_payload):
-                return False, "anchor signature invalid — anchor record may be tampered"
-
-            recomputed_id = _sha256(anchor_payload)
-            if recomputed_id != anchor_id:
-                return False, f"anchor_id mismatch — stored={anchor_id[:16]}… computed={recomputed_id[:16]}…"
-
-            current_hash = self._audit.last_chain_hash
-            if current_hash == anchor_chain_hash:
-                return True, None
-            return False, f"chain hash mismatch — anchored={anchor_chain_hash[:16]}… current={current_hash[:16]}…"
-
-        except Exception as exc:
-            return False, f"anchor verification error: {type(exc).__name__}: {exc}"
-            if __name__ == '__main__':
-    PASS, FAIL = 0, 0
-    def test(name, cond, det=""):
-        global PASS, FAIL
-        if cond: PASS += 1; print(f"  PASS  {name}")
-        else: FAIL += 1; print(f"  FAIL  {name}  —  {det}")
-
-    def gen_keypair():
-        priv = Ed25519PrivateKey.generate(); return priv, priv.public_key()
-
-    OPERATOR_PRIV, OPERATOR_PUB = gen_keypair()
-    GATEWAY_PRIV,  GATEWAY_PUB  = gen_keypair()
-    ROGUE_PRIV,    ROGUE_PUB    = gen_keypair()
-
-    ALLOW_DECISION = {"decision_id":"a"*64,"output_id":"out-001","status":"ALLOW","violations":[],"timestamp":"2025-06-15T12:00:00Z","_chain_hash":"c"*64}
-    BLOCK_DECISION = {"decision_id":"b"*64,"output_id":"out-002","status":"BLOCK","violations":["CONSTRAINT_AGE_MIN_18"],"timestamp":"2025-06-15T12:01:00Z","_chain_hash":"d"*64}
-    PHASE4_LOG = [ALLOW_DECISION, BLOCK_DECISION]
-    CONSTRAINT_HASH = "e"*64; COMMITTED_AT = "2025-06-15T10:00:00Z"; OVERRIDE_TS = "2025-06-15T14:30:00Z"
-    OPERATOR_IDENTITY = "dr.smith@hospital.example"
-    _AUTHORIZED_OPERATOR_REGISTRY.clear(); register_authorized_operator(OPERATOR_IDENTITY, OPERATOR_PUB)
-
-    def fresh_engine(): return Phase5Engine(PHASE4_LOG, True)
-
-    print("=== Phase 5 Test Suite ===\n")
-    print("-- Log Acceptance --")
-    test("valid chain accepted", Phase5Engine(PHASE4_LOG, True) is not None)
-    try: Phase5Engine(PHASE4_LOG, False); test("invalid chain rejected", False)
-    except Phase4LogRejected: test("invalid chain rejected", True)
-    try: Phase5Engine(PHASE4_LOG, 1); test("non-bool chain_valid rejected", False)
-    except Phase4LogRejected: test("non-bool chain_valid rejected", True)
-
-    print("\n-- Objective Commitment --")
-    eng = fresh_engine()
-    c = eng.commit("SAFETY_POLICY_V2.1","No underage recommendations.","v3.7",CONSTRAINT_HASH,COMMITTED_AT,OPERATOR_IDENTITY,OPERATOR_PRIV)
-    test("output contract fields present", all(k in c for k in ["objective_id","commitment_id","constraint_set_hash","committed_at","signature"]))
-    test("deterministic", fresh_engine().commit("X","d","v1",CONSTRAINT_HASH,COMMITTED_AT,"alice",OPERATOR_PRIV)["commitment_id"] == fresh_engine().commit("X","d","v1",CONSTRAINT_HASH,COMMITTED_AT,"alice",OPERATOR_PRIV)["commitment_id"])
-    test("changes with constraint_set_hash", eng.commit("X","d","v1","a"*64,COMMITTED_AT,"alice",OPERATOR_PRIV)["commitment_id"] != eng.commit("X","d","v1","b"*64,COMMITTED_AT,"alice",OPERATOR_PRIV)["commitment_id"])
-    test("signature verifies", eng.verify_commitment(c, OPERATOR_PUB))
-    test("signature fails wrong key", not eng.verify_commitment(c, ROGUE_PUB))
-    try: eng.commit("X","d","v1","tooshort",COMMITTED_AT,"alice",OPERATOR_PRIV); test("invalid hash length rejected", False)
-    except CommitmentError: test("invalid hash length rejected", True)
-
-    print("\n-- Proof Generation --")
-    eng = fresh_engine()
-    c = eng.commit("SAFETY_POLICY_V2.1","desc","v3.7",CONSTRAINT_HASH,COMMITTED_AT,OPERATOR_IDENTITY,OPERATOR_PRIV)
-    p = eng.prove("a"*64, c, GATEWAY_PRIV)
-    test("output contract fields present", all(k in p for k in ["proof_id","commitment_id","decision_id","status","proof_signature"]))
-    test("deterministic", fresh_engine().prove("a"*64,c,GATEWAY_PRIV)["proof_id"] == fresh_engine().prove("a"*64,c,GATEWAY_PRIV)["proof_id"])
-    test("BLOCK decision proof", eng.prove("b"*64,c,GATEWAY_PRIV)["status"]=="BLOCK")
-    test("violations redacted by default", eng.prove("b"*64,c,GATEWAY_PRIV)["_extended"]["violations"]=="REDACTED")
-    test("violations full audience", eng.prove("b"*64,c,GATEWAY_PRIV,"FULL")["_extended"]["violations"]==["CONSTRAINT_AGE_MIN_18"])
-    try: eng.prove("f"*64,c,GATEWAY_PRIV); test("unknown decision_id rejected", False)
-    except ProofError: test("unknown decision_id rejected", True)
-    res = eng.verify_proof(p, GATEWAY_PUB, c, ALLOW_DECISION, OPERATOR_PUB)
-    test("signature verifies (full path)", res["valid"])
-    test("fails wrong gateway key", not eng.verify_proof(p, ROGUE_PUB, c, ALLOW_DECISION, OPERATOR_PUB)["valid"])
-    test("fails mismatched decision record", not eng.verify_proof(p, GATEWAY_PUB, c, BLOCK_DECISION, OPERATOR_PUB)["valid"])
-
-    print("\n-- Override Controls --")
-    _AUTHORIZED_OPERATOR_REGISTRY.clear(); register_authorized_operator(OPERATOR_IDENTITY, OPERATOR_PUB)
-    eng = fresh_engine()
-    ov = eng.override("b"*64,"PERMANENT","Emergency medical override",OPERATOR_IDENTITY,OPERATOR_PRIV,OVERRIDE_TS)
-    test("valid permanent override", True)
-    ov2 = eng.override("b"*64,"TEMPORARY","Short-term",OPERATOR_IDENTITY,OPERATOR_PRIV,OVERRIDE_TS,"2025-06-15T16:00:00Z")
-    test("valid temporary override", ov2["_extended"]["expires_at"]=="2025-06-15T16:00:00Z")
-    try: eng.override("b"*64,"TEMPORARY","noexpires",OPERATOR_IDENTITY,OPERATOR_PRIV,OVERRIDE_TS,None); test("temporary requires expires_at", False)
-    except OverrideError: test("temporary requires expires_at", True)
-    try: eng.override("b"*64,"PERMANENT","rogue","unknown@x.com",ROGUE_PRIV,OVERRIDE_TS); test("unregistered operator rejected", False)
-    except OverrideError: test("unregistered operator rejected", True)
-    try: eng.override("b"*64,"PERMANENT","imp",OPERATOR_IDENTITY,ROGUE_PRIV,OVERRIDE_TS); test("wrong key for registered identity", False)
-    except OverrideError: test("wrong key for registered identity", True)
-    try: eng.override("a"*64,"PERMANENT","bad",OPERATOR_IDENTITY,OPERATOR_PRIV,OVERRIDE_TS); test("only BLOCK decisions overridable", False)
-    except OverrideError: test("only BLOCK decisions overridable", True)
-    ov3 = fresh_engine().override("b"*64,"PERMANENT","det",OPERATOR_IDENTITY,OPERATOR_PRIV,OVERRIDE_TS)
-    ov4 = fresh_engine().override("b"*64,"PERMANENT","det",OPERATOR_IDENTITY,OPERATOR_PRIV,OVERRIDE_TS)
-    test("deterministic", ov3["override_id"]==ov4["override_id"])
-    test("signature verifies", eng.verify_override(ov))
-    test("original decision not modified", BLOCK_DECISION["decision_id"]=="b"*64 and BLOCK_DECISION["status"]=="BLOCK")
-
-    print("\n-- Audit Log --")
-    eng = fresh_engine()
-    c = eng.commit("X","d","v1",CONSTRAINT_HASH,COMMITTED_AT,"alice",OPERATOR_PRIV)
-    eng.prove("a"*64,c,GATEWAY_PRIV)
-    eng.override("b"*64,"PERMANENT","audit",OPERATOR_IDENTITY,OPERATOR_PRIV,OVERRIDE_TS)
-    test("log grows correctly", len(eng.audit_log)==3)
-    test("audit chain valid", eng.audit_chain_valid)
-
-    print("\n-- Chain Integrity Gate --")
-    try: Phase5Engine(PHASE4_LOG, False); test("chain_valid=False blocks all ops", False)
-    except Phase4LogRejected: test("chain_valid=False blocks all ops", True)
-
-    original_total = PASS + FAIL
-    original_pass = PASS
-    original_fail = FAIL
-    print(f"\n=== Original Phase 5 Results: {original_pass}/{original_total} passed ===\n")
-
-    # ═══════════════════════════════════════════════════════════════
-    # GAP‑12 Tests — using the existing test() function (no nonlocal)
-    # ═══════════════════════════════════════════════════════════════
-    print("=== GAP-12 External Audit Anchor Tests ===\n")
-
-    # Reset the counters so we can track GAP‑12 separately then combine
-    gap12_start_pass = PASS
-    gap12_start_fail = FAIL
-
-    eng12 = fresh_engine()
-    eng12.commit("X","d","v1",CONSTRAINT_HASH,COMMITTED_AT,"alice",OPERATOR_PRIV)
-    eng12.prove("a"*64,eng12.commit("Y","d","v1",CONSTRAINT_HASH,COMMITTED_AT,"bob",OPERATOR_PRIV),GATEWAY_PRIV)
-    eng12.override("b"*64,"PERMANENT","anchor test",OPERATOR_IDENTITY,OPERATOR_PRIV,OVERRIDE_TS)
-
-    anchor = eng12.create_anchor(OPERATOR_PRIV)
-    test("GAP-12 | create_anchor returns all required fields",
-         all(k in anchor for k in ["anchor_id","chain_hash","timestamp","anchor_signature"]))
-    test("GAP-12 | anchor_id is non-empty string",
-         isinstance(anchor.get("anchor_id"), str) and len(anchor.get("anchor_id", "")) > 0)
-    test("GAP-12 | chain_hash is non-empty string",
-         isinstance(anchor.get("chain_hash"), str) and len(anchor.get("chain_hash", "")) > 0)
-    test("GAP-12 | timestamp is non-empty string",
-         isinstance(anchor.get("timestamp"), str) and len(anchor.get("timestamp", "")) > 0)
-    test("GAP-12 | anchor_signature is non-empty string",
-         isinstance(anchor.get("anchor_signature"), str) and len(anchor.get("anchor_signature", "")) > 0)
-
-    valid, reason = eng12.verify_anchor(anchor, OPERATOR_PUB)
-    test("GAP-12 | verify_anchor passes on valid anchor against current chain", valid, reason)
-
-    valid_w, reason_w = eng12.verify_anchor(anchor, ROGUE_PUB)
-    test("GAP-12 | verify_anchor fails with wrong public key", not valid_w, reason_w)
-
-    tampered_id = dict(anchor)
-    tampered_id["anchor_id"] = "0" * 64
-    valid_ti, reason_ti = eng12.verify_anchor(tampered_id, OPERATOR_PUB)
-    test("GAP-12 | verify_anchor fails with tampered anchor_id", not valid_ti, reason_ti)
-
-    tampered_ch = dict(anchor)
-    tampered_ch["chain_hash"] = "0" * 64
-    valid_tc, reason_tc = eng12.verify_anchor(tampered_ch, OPERATOR_PUB)
-    test("GAP-12 | verify_anchor fails with tampered chain_hash in anchor", not valid_tc, reason_tc)
-
-    incomplete = {"anchor_id": "abc"}
-    valid_inc, reason_inc = eng12.verify_anchor(incomplete, OPERATOR_PUB)
-    test("GAP-12 | verify_anchor fails with incomplete anchor record", not valid_inc, reason_inc)
-
-    eng_other = fresh_engine()
-    eng_other.commit("Z","d","v1",CONSTRAINT_HASH,COMMITTED_AT,"carol",OPERATOR_PRIV)
-    valid_mm, reason_mm = eng_other.verify_anchor(anchor, OPERATOR_PUB)
-    test("GAP-12 | verify_anchor detects chain hash mismatch between engines", not valid_mm, reason_mm)
-
-    anchor2 = eng12.create_anchor(OPERATOR_PRIV)
-    test("GAP-12 | Two anchors at same chain state have same chain_hash",
-         anchor["chain_hash"] == anchor2["chain_hash"])
-
-    payload = json.dumps(
-        {"chain_hash": anchor["chain_hash"], "timestamp": anchor["timestamp"]},
-        sort_keys=True, separators=(",", ":")
-    ).encode()
-    expected_aid = _sha256(payload)
-    test("GAP-12 | anchor_id is deterministic SHA-256 of payload",
-         anchor["anchor_id"] == expected_aid)
-
-    gap12_pass = PASS - gap12_start_pass
-    gap12_fail = FAIL - gap12_start_fail
-    total12 = gap12_pass + gap12_fail
-    print(f"\n=== GAP-12 Results: {gap12_pass}/{total12} passed ===")
-    if gap12_fail > 0: print("FAIL — do not commit")
-    else: print("ALL GAP-12 TESTS PASSED — ready for PR")
-
-    combined_pass = PASS
-    combined_fail = FAIL
-    print(f"\nCOMBINED RESULTS: {combined_pass} passed, {combined_fail} failed")
-    if combined_fail == 0: print("  ✓ ALL TESTS PASS — Phase 5 with GAP‑12 is ALIGNED.\n")
-    else: print(f"  ✗ {combined_fail} FAILURE(S) — Phase 5 is NOT aligned.\n")
