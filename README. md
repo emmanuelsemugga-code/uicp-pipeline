@@ -1,104 +1,259 @@
-# UICP – External Verification Package (Phases 1‑5)
+```markdown
+# UICP – Deterministic Constraint Enforcement Layer for AI
 
 ## What this package contains
 
-This package provides public interfaces and automated verification scripts
-for all five phases of the UICP constraint integrity pipeline.It allows
-independent engineers and AI labs to confirm every claim made by the system
-without accessing any internal algorithms, pipeline logic, or design maps.
+Public wrappers, verification scripts, external adversarial validation documents,
+and the REST API gateway for the UICP constraint integrity pipeline.
 
-## Files included
+## Quick Start — REST API Gateway
+
+### 1. Build Docker Image
+```bash
+docker build -t uicp-gateway:latest .
+```
+
+2. Prepare Constraint Set
+
+Save your constraint set JSON to constraint_set.json:
+
+```json
+{
+  "objective_id": "LOAN_APPROVAL_V1",
+  "constraints": ["age >= 18", "risk <= 25"]
+}
+```
+
+3. Run Container
+
+```bash
+docker run \
+  -e API_KEY="sk-test-your-api-key-here" \
+  -e CONSTRAINT_SET_PATH="/etc/constraint_set.json" \
+  -v $(pwd)/constraint_set.json:/etc/constraint_set.json \
+  -p 5000:5000 \
+  uicp-gateway:latest
+```
+
+4. Test the Gateway
+
+```bash
+curl -X POST http://localhost:5000/enforce \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: sk-test-your-api-key-here" \
+  -d '{
+    "model_output": "Loan for client age: 35. Risk score: 8. APPROVE.",
+    "binding_schema": {
+      "age": {"method": "regex", "pattern": "age[=: ]*(?P<value>\\d+)"},
+      "risk": {"method": "regex", "pattern": "risk[=: ]*(?P<value>\\d+)"}
+    },
+    "constraint_set": {"objective_id": "LOAN_APPROVAL_V1", "constraints": ["age >= 18", "risk <= 25"]}
+  }'
+```
+
+Endpoints
+
+POST /enforce
+
+Main enforcement endpoint. Accepts two modes:
+
+Mode 1: Raw Model Output
+
+```bash
+curl -X POST http://localhost:5000/enforce \
+  -H "X-API-Key: sk-test-your-key" \
+  -d '{
+    "model_output": "string from your model",
+    "binding_schema": {variables and patterns},
+    "constraint_set": {constraints to enforce}
+  }'
+```
+
+Mode 2: Pre-Extracted Bindings
+
+```bash
+curl -X POST http://localhost:5000/enforce \
+  -H "X-API-Key: sk-test-your-key" \
+  -d '{
+    "bindings": {"age": 35, "risk": 8},
+    "constraint_set": {constraints to enforce}
+  }'
+```
+
+GET /health
+
+Health check endpoint.
+
+```bash
+curl http://localhost:5000/health
+```
+
+Response: {"status": "healthy"}
+
+Environment Variables
+
+Variable Required Description
+API_KEY Yes Authentication key. Set to a strong value.
+CONSTRAINT_SET_PATH Yes Path to constraint set JSON file inside container.
+PERSONAL_DATA_STORE_KEY No 64-char hex encryption key for personal data (32 bytes).
+PORT No Port to listen on. Default: 5000.
+
+Response Format
+
+Success (200)
+
+```json
+{
+  "status": "ALLOW",
+  "violations": [],
+  "decision_id": "abc123...",
+  "output_id": "APP-2024-001",
+  "timestamp": "2026-05-29T12:34:56Z"
+}
+```
+
+Violation (200)
+
+```json
+{
+  "status": "BLOCK",
+  "violations": [
+    {
+      "constraint_identity": "C_AGE",
+      "canonical_form": "age >= 18",
+      "actual_value_hash": "sha256...",
+      "expected": "age >= 18"
+    }
+  ],
+  "decision_id": "def456...",
+  "output_id": "APP-2024-001",
+  "timestamp": "2026-05-29T12:34:56Z"
+}
+```
+
+Error (4xx/5xx)
+
+```json
+{
+  "error": true,
+  "error_type": "MISSING_CONSTRAINT_SET",
+  "message": "constraint_set is required",
+  "retryable": false,
+  "request_id": "req-uuid"
+}
+```
+
+Logging
+
+All requests are logged to stdout as JSON lines. Captured by Docker logs:
+
+```bash
+docker logs <container_id>
+```
+
+Updating Constraint Set
+
+To update the constraint set, restart the container with a new file:
+
+```bash
+vim constraint_set.json
+docker restart <container_id>
+```
+
+Production Deployment
+
+For Kubernetes:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: uicp-gateway
+spec:
+  containers:
+  - name: gateway
+    image: uicp-gateway:latest
+    ports:
+    - containerPort: 5000
+    env:
+    - name: API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: uicp-secrets
+          key: api-key
+    - name: CONSTRAINT_SET_PATH
+      value: /etc/constraint_set.json
+    volumeMounts:
+    - name: constraint-set
+      mountPath: /etc
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 5000
+      initialDelaySeconds: 5
+      periodSeconds: 10
+  volumes:
+  - name: constraint-set
+    configMap:
+      name: constraint-set-config
+```
+
+Files included
 
 Phase 1 – Structural Normalization
-  - normalize.py                   (public wrapper)
-  - verify_phase1_claims.py        (26‑check adversarial verification)
-  - Phase 1 External Validation Document (human‑readable)
+
+· normalize.py (public wrapper)
+· verify_phase1_claims.py (26‑check adversarial verification)
 
 Phase 2 – Single‑Variable Semantic Analysis
-  - phase2_public.py               (public wrapper)
-  - verify_phase2_claims.py        (14‑check adversarial verification)
-  - Phase 2 External Validation Document (human‑readable)
+
+· phase2_public.py (public wrapper)
+· verify_phase2_claims.py (14‑check adversarial verification)
 
 Phase 3 – Multi‑Variable Canonicalization
-  - phase3_public.py               (public wrapper)
-  - verify_phase3_claims.py        (21‑check adversarial verification)
-  - Phase 3 External Validation Document (human‑readable)
+
+· phase3_public.py (public wrapper)
+· verify_phase3_claims.py (21‑check adversarial verification)
 
 Phase 4 – Enforcement Gateway
-  - phase4_public.py               (public wrapper)
-  - verify_phase4_claims.py        (43‑check adversarial verification)
-  - Phase 4 External Validation Document (human‑readable)
+
+· phase4_public.py (public wrapper)
+· verify_phase4_claims.py (43‑check adversarial verification)
 
 Phase 5 – Trust and Audit Layer
-  - phase5_public.py               (public wrapper)
-  - verify_phase5_claims.py        (30‑check adversarial verification)
-  - Phase 5 External Validation Document (human‑readable)
+
+· phase5_public.py (public wrapper)
+· verify_phase5_claims.py (30‑check adversarial verification)
 
 Integration Layer
-  - binding_extraction.py          (17‑check validated extraction layer)
-  - decision_export.py             (audit bundle export module)
-  - demo_live_enforcement.py       (live‑enforcement demonstration script)
+
+· binding_extraction.py (17‑check validated extraction layer)
+· decision_export.py (audit bundle export module)
+· demo_live_enforcement.py (live‑enforcement demonstration script)
 
 Master scripts
-  - verify_all_phases.py           (single‑command pipeline verification)
-  - HOW_TO_VERIFY.txt              (plain‑text quick‑start instructions)
 
-## How to run
+· verify_all_phases.py (single‑command pipeline verification)
+· HOW_TO_VERIFY.txt (plain‑text quick‑start instructions)
 
-To validate the entire pipeline with one command:
-  python3 verify_all_phases.py
+REST API Gateway
 
-1. Place all .py files in a single directory alongside the internal engines
-   (normalize_v05.py, phase2_engine.py, phase3_engine.py,
-    phase4_engine.py, phase5_engine.py).
-   The internal engines are provided under controlled disclosure, not in this
-   public package.
+· app/auth.py (authentication middleware)
+· app/logging.py (structured JSON logging)
+· app/errors.py (error handling)
+· app/api.py (Flask REST API)
+· tests/test_api_endpoints.py (API test suite)
+· Dockerfile (container specification)
 
-2. Run the master verification script:
-     python3 verify_all_phases.py
-
-3. To verify a single phase:
-     python3 verify_phase1_claims.py
-     python3 verify_phase2_claims.py
-     python3 verify_phase3_claims.py
-     python3 verify_phase4_claims.py
-     python3 verify_phase5_claims.py
-
-## What each phase proves
-
-Phase 1: syntactic normalization — determinism, boundedness, termination,
-         fixed‑point, commutativity, absorption, identity bijection,
-         serialization invariance, structural stability, escape containment.
-
-Phase 2: single‑variable semantics — equivalence, dominance, conflict,
-         execution, OUT_OF_SCOPE preservation, multi‑variable extended
-         fields, identity‑ledger completeness.
-
-Phase 3: multi‑variable canonicalization — redundancy elimination, conflict
-         detection, nonlinear preservation, determinism, identity‑ledger
-         completeness.
-
-Phase 4: runtime enforcement — contract integrity, binding validation,
-         enforceable constraint checking, non‑enforceable constraint
-         pass‑through, identity immutability, determinism, cryptographic
-         chain integrity, sanitised model‑facing response, output contract
-         compliance.
-
-Phase 5: trust and audit — objective commitment with Ed25519 signatures,
-         verifiable compliance proofs, human‑gated override controls,
-         append‑only audit log with cryptographic chaining, private‑key
-         safety enforcement, third‑party proof verification without
-         engine access.
-
-## Live Demonstration
+Live Demonstration
 
 A hard‑verdict live demo using Groq / Llama 3.1 is recorded and available at:
-  https://youtube.com/shorts/5bcrtv_1pMQ
+https://youtube.com/shorts/5bcrtv_1pMQ
 
-## Disclosure boundary
+Disclosure boundary
 
-This public package contains ONLY the public wrappers, verification scripts,
-and human‑readable validation documents.  The internal engines, all
-specification documents, adversarial exchange artifacts, design maps,
-and pipeline algorithms are retained internally and are NOT part of this
-package. This boundary is intentional and non‑negotiable.
+The internal engines (engines/phase*_engine.py, normalize_v05.py) are available
+under controlled disclosure. This public package contains only the public wrappers,
+verification scripts, REST API layer, and human‑readable validation documents.
+
+```
