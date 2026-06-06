@@ -131,8 +131,21 @@ except Exception as e:
     print(f"FATAL STARTUP ERROR: {e}")
     exit(1)
 
-# Create gateway instances
-GATEWAY = Phase4EnforcementGateway(CONSTRAINT_SET)
+# ═══════════════════════════════════════════════════════════════
+# GAP‑20: Select audit log backend based on DATABASE_URL env var
+# ═══════════════════════════════════════════════════════════════
+from app.audit_log import LocalFileAuditLog, PostgreSQLAuditLog
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if DATABASE_URL:
+    AUDIT_LOG = PostgreSQLAuditLog(DATABASE_URL)
+    print("✓ Using PostgreSQL audit log backend")
+else:
+    AUDIT_LOG = LocalFileAuditLog()
+    print("✓ Using local in‑memory audit log backend")
+
+GATEWAY = Phase4EnforcementGateway(audit_log=AUDIT_LOG)
 AUDIT = Phase5Engine(last_phase4_hash="init")
 PERSONAL_DATA_STORE = (
     EncryptedPersonalDataStore(
@@ -141,7 +154,7 @@ PERSONAL_DATA_STORE = (
         access_log_path="./personal_data_access.log",
         role="gateway",
     ) if ENCRYPTION_KEY else None
-)
+  )
 
 
 # ── Health Check Endpoint ────────────────────────────────────────────────────
