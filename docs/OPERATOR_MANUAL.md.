@@ -1,0 +1,529 @@
+# The UICP Operator's Guide
+
+## A manual for keeping constraint enforcement running — for any person, anywhere, without ever calling the developer.
+
+This manual assumes the original developer is gone, the system is live, and someone must keep it healthy.  
+It is written for a person who may never have built software before, but who must now be the guardian of AI safety for their organisation.
+
+If something goes wrong, you will not call the developer.  
+You will read this manual, follow the steps, and fix it yourself.
+
+---
+
+## PART ONE — WHY THIS SYSTEM EXISTS
+
+An AI model makes a recommendation.  
+A human is supposed to check it before acting.  
+But humans are overwhelmed. Doctors see hundreds of patients. Loan officers process thousands of applications. Compliance teams cannot watch every transaction.
+
+So the AI recommendation goes through unchecked.  
+And sometimes, that recommendation violates a rule that should never be violated.
+
+A patient allergic to penicillin is prescribed penicillin.  
+A 16‑year‑old is approved for a loan they cannot legally take.  
+A military drone recommends a strike on a building that contains civilians.  
+A tax refund is paid to someone who does not qualify.
+
+These are not hypotheticals. They are documented, real‑world failures.  
+The pattern is always the same: an AI system produced a decision, the decision violated a formal rule, and no software checked that rule before the decision was acted upon.
+
+UICP is the safety net.  
+It checks every AI decision against a set of rules you define.  
+If the decision violates a rule, it is blocked.  
+If the decision passes all rules, it is allowed through.
+
+UICP does not make decisions. It does not judge intent. It applies logic — deterministically, every time, with cryptographic proof.
+
+---
+
+## PART TWO — WHAT UICP ACTUALLY DOES
+
+UICP is a constraint‑enforcement gateway.  
+It sits between an AI model and the world.  
+It accepts an AI recommendation, extracts the important numbers from it, checks those numbers against a list of rules you created, and returns one of three answers:
+
+* **ALLOW** — all rules passed.
+* **BLOCK** — at least one rule was violated.
+* **GATEWAY_UNAVAILABLE** — something went wrong inside UICP itself; manual review is required.
+
+Every decision is cryptographically signed so that later, anyone can prove what UICP checked and what it decided.
+
+### The five‑phase pipeline
+
+1. **Normalization** — the raw AI output is converted into a standard form.
+2. **Semantic Analysis** — the important numbers (age, income, risk score, etc.) are extracted.
+3. **Constraint Evaluation** — every rule is checked against those numbers.
+4. **Enforcement** — if any rule is violated → BLOCK; if all pass → ALLOW; if an error occurred → GATEWAY_UNAVAILABLE.
+5. **Cryptographic Audit** — the decision is signed with an Ed25519 signature and logged in an append‑only, tamper‑evident audit chain.
+
+### What UICP does NOT do
+
+* It does not write the rules. You write the rules.
+* It does not verify that the extracted numbers are correct. If the extraction schema is wrong, UICP will enforce rules on wrong numbers.
+* It does not understand the intent of a decision. It only checks whether numbers satisfy mathematical inequalities.
+* It does not prevent a model from producing harmful text that does not involve numeric constraints.
+
+---
+
+## PART THREE — DEPLOYING UICP FOR THE FIRST TIME
+
+UICP runs inside a Docker container. Docker is a tool that packages software so it runs the same way everywhere. Think of it as a sealed box that contains everything UICP needs.
+
+### Before you begin
+
+You need:
+
+1. **A computer or cloud virtual machine** with at least 2 CPU cores, 2 GB of RAM, and 10 GB of free disk space. Any modern Linux machine works. AWS free‑tier, Google Cloud, or an old office server are all fine.
+2. **Docker installed.** Go to docker.com, download Docker Desktop (or Docker Engine for Linux servers), and install it.
+3. **A constraint file** — the list of rules UICP will enforce. We will create this together.
+4. **An API key** — a secret string that clients must send with every request. Choose something long and random, e.g., `sk‑abc123def456ghi789`. Store it in a password manager.
+
+### Step 1 — Write your constraint file
+
+Create a file called `constraints.json` with your rules.  
+Here is a simple example for a bank that wants to block loans to minors and loans with a debt‑to‑income ratio above 43%:
+
+```json
+{
+  "status": "OK",
+  "canonical_constraints": [
+    {
+      "identity_string": "MIN_AGE",
+      "canonical_form": "age >= 18",
+      "classification": "LINEAR_SINGLE_VAR",
+      "derived_from": ["MIN_AGE"],
+      "reason": ""
+    },
+    {
+      "identity_string": "MAX_DTI",
+      "canonical_form": "debt_to_income <= 0.43",
+      "classification": "LINEAR_SINGLE_VAR",
+      "derived_from": ["MAX_DTI"],
+      "reason": ""
+    }
+  ],
+  "equivalence_groups": [],
+  "dominance_removed": [],
+  "execution_result": {}
+}
+What each field means:
+
+· canonical_form — the actual rule. age >= 18 means “the variable called ‘age’ must be 18 or larger.” debt_to_income <= 0.43 means “the variable called ‘debt_to_income’ must be 0.43 or smaller.”
+· identity_string — a short label for the rule.
+· classification — always LINEAR_SINGLE_VAR for simple rules. Multi‑variable rules like income >= 2 * loan_amount use LINEAR_MULTI_VAR.
+
+Write your rules, save the file, and note its location on your computer (e.g., /home/ubuntu/constraints.json).
+
+Step 2 — Build and run the container
+Open a terminal and run these commands:
+
+```bash
+# Build the Docker image (do this once)
+docker build -t uicp-gateway .
+
+# Run the container
+docker run -d \
+  --name uicp \
+  -p 5000:5000 \
+  -e API_KEY="sk-abc123def456ghi789" \
+  -e CONSTRAINT_SET_PATH="/etc/constraints.json" \
+  -v /home/ubuntu/constraints.json:/etc/constraints.json \
+  uicp-gateway
+```
+What these flags mean:
+
+· -d — run in the background.
+· --name uicp — give the container a name so you can refer to it.
+· -p 5000:5000 — make the container reachable at port 5000.
+· -e API_KEY="..." — set the secret API key.
+· -e CONSTRAINT_SET_PATH="/etc/constraints.json" — tell UICP where to find the rules file inside the container.
+· -v /home/ubuntu/constraints.json:/etc/constraints.json — make your local file appear inside the container at the expected path.
+
+Step 3 — Verify it is running
+
+```bash
+curl http://localhost:5000/health ```
+
+Expected response:
+
+```json
+{"status":"healthy"}
+```
+
+If you see this, UICP is alive.
+
+Step 4 — Test with a real decision
+
+Send a test decision to the enforcement endpoint.
+This example sends pre‑extracted bindings (the numbers are already pulled out of the AI output):
+curl -X POST http://localhost:5000/enforce \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: sk-abc123def456ghi789" \
+  -d '{
+    "bindings": {"age": 35, "debt_to_income": 0.25},
+    "constraint_set": {
+      "status":"OK",
+      "canonical_constraints":[
+        {"identity_string":"MIN_AGE","canonical_form":"age >= 18","classification":"LINEAR_SINGLE_VAR"},
+        {"identity_string":"MAX_DTI","canonical_form":"debt_to_income <= 0.43","classification":"LINEAR_SINGLE_VAR"}
+      ]
+    },
+    "output_id": "test-001"
+  }'
+Expected response when all rules pass, allow 
+{
+  "status": "ALLOW",
+  "violations": [],
+  "decision_id": "...",
+  "output_id": "test-001",
+  "timestamp": "..."
+}
+Now test a violation _ a 16 year old 
+curl -X POST http://localhost:5000/enforce \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: sk-abc123def456ghi789" \
+  -d '{
+    "bindings": {"age": 16, "debt_to_income": 0.25},
+    "constraint_set": {
+      "status":"OK",
+      "canonical_constraints":[
+        {"identity_string":"MIN_AGE","canonical_form":"age >= 18","classification":"LINEAR_SINGLE_VAR"},
+        {"identity_string":"MAX_DTI","canonical_form":"debt_to_income <= 0.43","classification":"LINEAR_SINGLE_VAR"}
+      ]
+    },
+    "output_id": "test-002"
+  }'
+Expected output age rule violated block 
+{
+  "status": "BLOCK",
+  "violations": [
+    {
+      "constraint_identity": "MIN_AGE",
+      "canonical_form": "age >= 18",
+      "actual_value": 16,
+      "expected": "age >= 18"
+    }
+  ],
+  ...
+}
+If both tests produce the expected results, UICP is working correctly. You are ready to connect it to your real AI system.
+
+```
+```markdown
+## PART FOUR — RUNNING UICP EVERY DAY
+
+### The morning health check (30 seconds)
+
+Every morning, run:
+
+```bash
+curl http://localhost:5000/health
+```
+
+If you see {"status":"healthy"}, UICP is running.
+
+Check the container is up:
+
+```bash
+docker ps --filter name=uicp
+```
+If you see a line with Up in the STATUS column, the container is alive.
+
+Check recent logs for errors:
+
+```bash
+docker logs uicp --tail 50 2>&1 | grep -i error
+```
+
+If nothing appears, there are no recent errors. If errors appear, read them — they usually tell you what went wrong and when.
+
+Understanding the logs
+
+UICP prints structured log lines to stdout. A normal enforcement log looks like this:
+``json
+{"timestamp":"...","request_id":"...","endpoint":"enforce","method":"POST","api_key":"sk-abc...","status_code":200,"latency_ms":2.3,"error_type":null}
+```
+
+If you see error_type set to something like MISSING_API_KEY, INVALID_API_KEY, or MALFORMED_JSON, a client sent a bad request.
+
+If you see status_code:503 with error_type:GATEWAY_UNAVAILABLE, UICP hit an internal error and activated its fail‑safe.
+
+Weekly review (10 minutes)
+Once a week, check:
+
+1. Total decisions processed: Count the log lines for the /enforce endpoint.
+2. Block rate: Count how many responses contain "status":"BLOCK". If the rate suddenly changes, a rule may be too strict, or the AI model may be producing worse outputs.
+3. Error rate: Count lines with error_type set. Should be very low.
+4. Disk space: Run df -h on the host. If the disk is over 80% full, export and archive old audit logs (see below).
+
+Exporting audit logs
+
+The audit log lives inside the container. To export it for long‑term storage, compliance, or analysis, copy the decision export script and run it:
+
+```bash
+# Copy the export script from the container
+docker cp uicp:/app/decision_export.py .
+
+# Run it (this writes the audit bundle to a directory)
+python3 decision_export.py
+```
+
+This produces a folder called audit_export/ containing:
+· phase4_chain.json — every enforcement decision, cryptographically chained.
+· phase5_chain.json — proofs, commitments, and overrides.
+· manifest.json — integrity hash of the bundle.
+· public_keys.json — the public keys needed to verify signatures.
+
+Give this folder to your auditors. They can verify every decision without access to UICP itself.
+
+---
+PART FIVE — MAKING CHANGES TO YOUR RULES
+
+Rules change when regulations change or when you discover a gap.
+Never edit the live constraint file directly while the container is running. Follow this process:
+
+1. Write the new rules in your local constraints.json.
+2. Test them by running a separate UICP container with the new file against historical data. Use curl commands to send decisions that should be ALLOWed and BLOCKed.
+3. Get approval from your compliance officer or team lead. Save the approval email.
+4. Update the live system:
+``bash
+   # Stop the container
+   docker stop uicp
+   
+   # Replace the constraint file on the host
+   
+   # Restart the container
+   docker start uicp
+   
+   # Verify health
+   curl http://localhost:5000/health
+   ```
+5. Monitor the first hour of decisions. If the block rate looks wrong, stop the container, revert to the old file, and restart.
+
+Rolling back a bad rule If a new rule blocks far more decisions than expected:
+
+```bash
+docker stop uicp
+# restore the old constraints.json file
+docker start uicp
+```
+
+The system returns to its previous state immediately. Fix the rule and try again.
+
+---
+
+PART SIX — KEEPING ENCRYPTION KEYS SAFE
+UICP uses Ed25519 digital signatures to prove every decision is genuine. The signing key is generated automatically when the container first starts. In the current deployment model, keys live in memory and are lost when the container stops. This is acceptable for development, but for production you must manage keys persistently.
+
+Production key storage
+
+1. Generate a key pair using the KeyLifecycleManager built into UICP.
+2. Store the private key in an encrypted file or a Hardware Security Module (HSM). Never store it in plaintext alongside the constraint file.
+3. Provide the key to UICP at startup via a mounted secret or environment variable.
+4. Back up the key in a separate, secure location. If the key is lost, all past signatures become unverifiable.
+
+Key rotation (do this every 12 months)
+
+1. Generate a new key pair.
+2. Update UICP to use the new key for new decisions.
+3. Archive the old public key. Old decisions signed with the old key must still be verifiable.
+
+Key revocation (do this immediately if you suspect compromise)
+1. Revoke the key using the KeyLifecycleManager.
+2. Generate a replacement key.
+3. Notify auditors and regulators that the old key is revoked. Decisions signed with the old key are now suspect.
+
+Monthly key checklist
+
+· Private key is encrypted and not stored in plaintext.
+· Backup key is in a separate physical location.
+· Key age is under 12 months.
+
+---
+PART SEVEN — WATCHING FOR PROBLEMS (MONITORING AND ALERTING)
+
+UICP itself does not send alerts. You must set up external monitoring that watches the health endpoint and the host machine.
+
+What to monitor
+
+· Health endpoint: A script that runs curl http://localhost:5000/health every 60 seconds. If it fails three times in a row, send an alert.
+· Container status: docker ps should always show the container as Up.
+· Disk usage: If the host disk exceeds 80%, send a warning.
+· CPU and memory: If the host CPU stays above 90% for five minutes, send a warning.
+
+Simple monitoring with a cron job
+
+Create a script called check_uicp.sh:
+
+```bash
+#!/bin/bash
+if ! curl -s http://localhost:5000/health | grep -q healthy; then
+  echo "UICP health check failed at $(date)" >> /var/log/uicp_alerts.log
+  # add your alerting command here (email, Slack webhook, etc.)
+fi
+```
+
+Run it every minute via cron:
+
+```
+* * * * /home/ubuntu/check_uicp.sh
+```
+
+What to do when an alert fires
+
+1. Check docker ps — is the container running?
+2. Check docker logs uicp --tail 100 for errors.
+3. Check disk space with df -h.
+4. If nothing obvious, restart the container: docker restart uicp.
+5. If restart does not fix it within 10 minutes, activate manual review (see emergency procedures below).
+
+```
+
+```markdown
+## PART EIGHT — WHEN THINGS GO WRONG (DIAGNOSIS AND FIXING)
+
+UICP will eventually fail. Hardware breaks. Disks fill up. Configuration mistakes happen. When it does, follow this diagnosis process.
+
+### The diagnosis method
+
+1. **Check if the container is running:** `docker ps --filter name=uicp`
+   * If not running, try: `docker start uicp`
+2. **Check the health endpoint:** `curl http://localhost:5000/health`
+   * If it returns `healthy`, the problem is upstream (client, network, or constraint definition).
+   * If it returns nothing, UICP is not responding.
+3. **Check the logs:** `docker logs uicp --tail 100`
+   * Look for lines containing `ERROR`, `Exception`, or `FATAL`.
+4. **Check disk space:** `df -h`
+   * If the disk is full, delete old files or expand the disk.
+5. **Check the constraint file:** Is it still valid JSON? Did someone accidentally edit it?
+6. **Restart the container:** `docker restart uicp`
+   * This fixes most transient problems.
+
+### Common problems and fixes
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| `curl /health` returns nothing | Container stopped | `docker start uicp` |
+| Health returns `healthy` but enforcement fails | Wrong API key in client request | Verify `X-API-Key` header |
+| `GATEWAY_UNAVAILABLE` in every decision | Constraint file corrupted | Stop container, replace file, restart |
+| Disk full | Audit logs too large | Export and archive logs, then delete old ones |
+| Container restarts loop | Invalid constraint file or missing env var | Check `docker logs uicp` for startup errors |
+
+### If you cannot fix it
+
+1. Stop the container. UICP will not make decisions while it is down.
+2. Activate your manual review process. Have humans check every AI decision against the constraint list until UICP is back.
+3. Export the current audit logs so you have a snapshot.
+4. Contact your IT team or cloud provider if the problem is hardware‑related.
+
+---
+
+## PART NINE — GROWING UICP AS YOUR SYSTEM GETS BIGGER
+
+One UICP container can handle hundreds of decisions per second. When you outgrow it:
+
+* **Run multiple containers** behind a load balancer. Each container needs the same constraint file and API key.
+* **Store the constraint file in a shared volume** so all containers see the same rules.
+* **Export audit logs regularly** from each container and consolidate them in a central location.
+* **Consider Kubernetes** (GAP‑18, GAP‑20) when you need automatic scaling and failover. These capabilities are planned but not yet built.
+
+---
+
+## PART TEN — AUDITS AND COMPLIANCE
+
+Regulators will ask: “Prove that your rules were enforced.” UICP enables this.
+
+### Proving rules were enforced
+
+Give the auditor the exported audit bundle (`audit_export/`). They can:
+
+1. Verify the `manifest.json` integrity hash.
+2. Walk the cryptographic chain to confirm no decision was added or removed.
+3. Verify Ed25519 signatures using the public keys in `public_keys.json`.
+4. See exactly which constraint was violated for every BLOCK decision.
+
+No access to UICP, the AI model, or any internal engine is required.
+
+### Proving rules are correct
+
+Keep a record of:
+
+* Who wrote each rule.
+* Why the rule exists (which regulation or policy).
+* Who approved it.
+* When it was deployed.
+
+### Proving no one bypasses UICP
+
+Your application architecture must route every AI decision through the `/enforce` endpoint before the decision takes effect. Document this in your system architecture diagram and make it available to auditors.
+
+---
+
+## PART ELEVEN — LONG‑TERM CARE
+
+### Quarterly tasks
+
+* Review all rules. Are they still correct?
+* Check key age. Plan rotation if the key is over 9 months old.
+* Test restoring from a backup of the constraint file and keys.
+* Review error rates and block rates for anomalies.
+
+### Annual tasks
+
+* Rotate the signing key.
+* Export and archive the full year’s audit logs.
+* Review this manual and update any changed procedures.
+* Train a backup operator.
+
+---
+
+## PART TWELVE — EMERGENCY PROCEDURES
+
+Print this section and keep it near the server.
+
+### UICP is down
+
+1. `docker ps --filter name=uicp` — is it running?
+2. If not: `docker start uicp`
+3. If start fails: `docker logs uicp --tail 50`
+4. If logs show `FATAL` or `Error`, check constraint file and env vars.
+5. If still down after 10 minutes → activate manual review.
+
+### Too many decisions blocked
+
+1. Look at the last 10 BLOCK responses. Which rule is firing?
+2. Temporarily disable that rule by removing it from the constraint file, stop and start the container.
+3. Investigate why the rule is over‑blocking. Fix and redeploy.
+
+### Suspected key compromise
+
+1. Revoke the key immediately.
+2. Generate a new key pair.
+3. Restart UICP with the new key.
+4. Notify auditors.
+
+### Hardware failure
+
+1. Obtain a new machine.
+2. Install Docker.
+3. Copy the constraint file and key backup to the new machine.
+4. Run the `docker run` command from Part Three.
+5. Restore audit logs from the most recent export.
+
+---
+
+## PART THIRTEEN — CLOSING THOUGHTS
+
+You are now the operator of a deterministic constraint‑enforcement system.  
+Every day, AI decisions will pass through UICP. Every day, rules will be checked. Every day, violations will be blocked.
+
+When the system works, no one will notice. That is the point.  
+You will not get credit for the loan that was correctly blocked for a 16‑year‑old, or for the medication that was not given to an allergic patient, or for the drone strike that was prevented because the constraint fired.
+
+But those people are safer because you kept this system running.
+
+**Sleep well. You have done your job.**
+
+---
+
+**END OF OPERATOR MANUAL**
