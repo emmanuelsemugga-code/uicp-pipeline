@@ -1,0 +1,15 @@
+{
+  "status": "OK",
+  "canonical_constraints": [
+    {
+      "identity_string": "AGE_CHECK",
+      "canonical_form": "age >= 18",
+      "classification": "LINEAR_SINGLE_VAR",
+      "derived_from": ["AGE_CHECK"],
+      "reason": ""
+    }
+  ],
+  "equivalence_groups": [],
+  "dominance_removed": [],
+  "execution_result": {}
+}
