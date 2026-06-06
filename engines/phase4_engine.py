@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Phase 4 – UICP Runtime Enforcement Gateway (monolithic, Colab‑ready)
-Engine + 73‑check alignment test suite (GAP‑21 + GAP‑42 + GAP‑36 + GAP‑44).
-PATCHED: load_phase3_contract accepts both dict and list, strict status check restored.
+GAP‑20 PATCH: AuditLog abstraction for multi‑instance readiness.
+All original enforcement logic untouched.
 """
-import hashlib, json, re
+import hashlib, json, re, os, uuid
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
 
@@ -120,20 +121,58 @@ if '_sign' not in dir():
     def _sign(priv, data):
         return priv.sign(data).hex()
 
-# Minimal PersonalDataStore stub for Colab if not already defined
-try:
-    PersonalDataStore
-except NameError:
-    class PersonalDataStore:
-        @staticmethod
-        def compute_hash(val): return hashlib.sha256(str(val).encode()).hexdigest() class Phase4EnforcementGateway:
-    def __init__(self, gateway_private_key=None):
+# ── GAP‑20 AuditLog abstraction ─────────────────────────────
+class AuditLog(ABC):
+    @abstractmethod
+    def append(self, decision: dict) -> str: ...
+    @abstractmethod
+    def get_by_id(self, decision_id: str) -> dict | None: ...
+    @abstractmethod
+    def list_recent(self, limit: int = 100) -> list[dict]: ...
+    @abstractmethod
+    def export_range(self, start_date: str, end_date: str) -> list[dict]: ...
+    @abstractmethod
+    def verify_chain(self) -> bool: ...
+
+class LocalFileAuditLog(AuditLog):
+    """Single‑instance in‑memory audit log – identical behaviour to original gateway."""
+    def __init__(self):
+        self._entries: list[dict] = []
+    def append(self, decision: dict) -> str:
+        prev_hash = self._entries[-1]["_chain_hash"] if self._entries else "GENESIS"
+        chain_input = prev_hash + decision["decision_id"]
+        chain_hash = hashlib.sha256(chain_input.encode()).hexdigest()
+        entry = {**decision, "_chain_hash": chain_hash}
+        self._entries.append(entry)
+        return decision["decision_id"]
+    def get_by_id(self, decision_id: str) -> dict | None:
+        for e in self._entries:
+            if e.get("decision_id") == decision_id:
+                return e
+        return None
+    def list_recent(self, limit: int = 100) -> list[dict]:
+        return self._entries[-limit:]
+    def export_range(self, start_date: str, end_date: str) -> list[dict]:
+        return [e for e in self._entries if start_date <= e.get("timestamp","") <= end_date]
+    def verify_chain(self) -> bool:
+        running = "GENESIS"
+        for e in self._entries:
+            expected = hashlib.sha256((running + e["decision_id"]).encode()).hexdigest()
+            if e.get("_chain_hash") != expected:
+                return False
+            running = e["_chain_hash"]
+        return True
+    def get_all(self) -> list[dict]:
+        return list(self._entries)
+        class Phase4EnforcementGateway:
+    def __init__(self, gateway_private_key=None, audit_log=None):
         self._enforceable = []
         self._review_queue = []
-        self._decision_log = []
+        self._decision_log = []               # kept for backward compatibility
         self._loaded = False
         self._gateway_private_key = gateway_private_key
         self._commitment_id = "UNSET"
+        self._audit_log = audit_log           # GAP‑20: swappable audit backend
 
     # ═══════════════════════════════════════════════════════════════
     # PATCHED: accepts both a Phase 3 output dict AND a plain list
@@ -141,8 +180,6 @@ except NameError:
     def load_phase3_contract(self, contract):
         if self._loaded:
             raise RuntimeError("Contract already loaded.")
-
-        # ── If it's a plain list of strings, wrap it as constraints ───
         if isinstance(contract, list):
             for item in contract:
                 if isinstance(item, str):
@@ -157,27 +194,18 @@ except NameError:
                     self._enforceable.append(item)
             self._loaded = True
             return
-
-        # ── Otherwise, treat it as a standard Phase 3 output dict ────
         if not isinstance(contract, dict):
             raise RuntimeError("Contract must be a list or a dict.")
-
-        # RESTORED: strict status check – only "OK" is valid
         status = contract.get("status")
         if status != "OK":
-            raise RuntimeError(
-                f"Phase 3 contract rejected: status={status!r}"
-            )
-
+            raise RuntimeError(f"Phase 3 contract rejected: status={status!r}")
         raw = contract.get("canonical_constraints")
         if not isinstance(raw, list):
             raise RuntimeError("Missing canonical_constraints list.")
-
         for entry in raw:
             classification = entry.get("classification", "")
             identity_string = entry.get("identity_string")
             canonical_form = entry.get("canonical_form")
-
             if not identity_string or not isinstance(identity_string, str):
                 raise RuntimeError("Invalid identity_string")
             if classification in ENFORCEABLE_CLASSIFICATIONS:
@@ -203,10 +231,7 @@ except NameError:
                     "review_status": "PENDING_MANUAL_REVIEW",
                 })
             else:
-                raise RuntimeError(
-                    f"Unknown classification {classification!r}"
-                )
-
+                raise RuntimeError(f"Unknown classification {classification!r}")
         self._loaded = True
 
     def _validate_bindings(self, bindings):
@@ -251,7 +276,6 @@ except NameError:
             binding_evidence   = request.get("binding_evidence", {})
             injection_warnings = request.get("injection_warnings", [])
             verification_record = request.get("verification_record", {})
-
             if not self._loaded:
                 raise RuntimeError("Gateway not initialised.")
             timestamp = datetime.now(timezone.utc).isoformat()
@@ -269,7 +293,6 @@ except NameError:
                     verification_record=verification_record)
                 self._write_log(decision)
                 return decision
-
             violations = self._evaluate_all(bindings)
             if self._review_queue:
                 self._log_review_queue(output_id, timestamp)
@@ -356,7 +379,6 @@ except NameError:
             else:
                 chain_violation = dict(v)
             chain_violations.append(chain_violation)
-
         record_for_hash = {
             "status":     status,
             "violations": chain_violations,
@@ -365,7 +387,6 @@ except NameError:
         }
         canonical_json = json.dumps(record_for_hash, sort_keys=True, separators=(",", ":"))
         decision_id = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
-
         decision = {
             "status":              status,
             "violations":          chain_violations,
@@ -380,7 +401,6 @@ except NameError:
             "gdpr_compliant":      True,
             "personal_data_store": "off-chain" if personal_data_store else "not_configured",
         }
-
         if self._gateway_private_key is not None:
             signing_payload = json.dumps({
                 "decision_id": decision["decision_id"],
@@ -392,7 +412,6 @@ except NameError:
             decision["decision_signature"] = _sign(self._gateway_private_key, signing_payload)
         else:
             decision["decision_signature"] = None
-
         import json as _json, hashlib as _hashlib
         decision_hash_payload = _json.dumps({
             "constraint_commitment": getattr(self, '_commitment_id', 'UNSET'),
@@ -407,12 +426,15 @@ except NameError:
         decision["decision_hash"] = _hashlib.sha256(decision_hash_payload).hexdigest()
         return decision
 
+    # ── GAP‑20 PATCH: _write_log uses AuditLog if configured ─────────────
     def _write_log(self, decision):
-        previous_hash = self._decision_log[-1]["_chain_hash"] if self._decision_log else "GENESIS"
-        chain_input = previous_hash + decision["decision_id"]
-        chain_hash = hashlib.sha256(chain_input.encode("utf-8")).hexdigest()
-        log_entry = {**decision, "_chain_hash": chain_hash}
-        self._decision_log.append(log_entry)
+        prev_hash = self._decision_log[-1]["_chain_hash"] if self._decision_log else "GENESIS"
+        chain_input = prev_hash + decision["decision_id"]
+        chain_hash = hashlib.sha256(chain_input.encode()).hexdigest()
+        decision["_chain_hash"] = chain_hash
+        self._decision_log.append(decision)
+        if self._audit_log is not None:
+            self._audit_log.append(decision)
 
     def _log_review_queue(self, output_id, timestamp):
         for item in self._review_queue:
@@ -423,6 +445,8 @@ except NameError:
             chain_hash = hashlib.sha256(chain_input.encode("utf-8")).hexdigest()
             review_entry["_chain_hash"] = chain_hash
             self._decision_log.append(review_entry)
+            if self._audit_log is not None:
+                self._audit_log.append(review_entry)
 
     @staticmethod
     def sanitise_for_model(decision):
@@ -451,3 +475,11 @@ except NameError:
 
     def get_review_queue(self):
         return list(self._review_queue)
+
+# Minimal PersonalDataStore stub for Colab
+try:
+    PersonalDataStore
+except NameError:
+    class PersonalDataStore:
+        @staticmethod
+        def compute_hash(val): return hashlib.sha256(str(val).encode()).hexdigest()
