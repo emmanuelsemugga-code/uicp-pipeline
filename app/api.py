@@ -1,159 +1,148 @@
-# ============================================================
-# Validate app/api.py — GAP‑18 (CORRECTED harness)
-# ============================================================
-!pip install flask -q
-
-import json, os, hashlib, uuid, tempfile
+#!/usr/bin/env python3
+"""
+app/api.py — GAP-22 REST API Gateway
+GAP-18 (multi-tenancy), GAP-20 (AuditLog), GAP-19 (ConstraintStore) integrated.
+"""
+import json, os, uuid, sys
 from datetime import datetime, timezone
 from flask import Flask, request, jsonify, g
-from functools import wraps
 
-# ── Stubs ───────────────────────────────────────────────────
-class AuditLog:
-    def __init__(self): self._entries = []
-    def append(self, d): self._entries.append(d); return d.get("decision_id","")
-    def get_all(self): return list(self._entries)
+sys.path.insert(0, os.getcwd())
 
-class Phase4EnforcementGateway:
-    def __init__(self, audit_log=None): self._enforceable = []; self._audit_log = audit_log
-    def load_phase3_contract(self, c):
-        if isinstance(c, list):
-            for item in c:
-                if isinstance(item, str): self._enforceable.append({"identity_string":item,"canonical_form":item,"classification":"LINEAR_SINGLE_VAR"})
-                else: self._enforceable.append(item)
-    def check_output(self, req):
-        b = req.get("bindings",{})
-        v = []
-        for c in self._enforceable:
-            cf = c["canonical_form"]
-            if ">=" in cf:
-                var, val = cf.split(">="); var=var.strip(); val=int(val.strip())
-                if b.get(var,0) < val: v.append({"constraint_identity":c["identity_string"],"canonical_form":cf,"actual_value":b.get(var),"expected":cf})
-            elif "<=" in cf:
-                var, val = cf.split("<="); var=var.strip(); val=int(val.strip())
-                if b.get(var,0) > val: v.append({"constraint_identity":c["identity_string"],"canonical_form":cf,"actual_value":b.get(var),"expected":cf})
-        s = "ALLOW" if not v else "BLOCK"
-        d = {"status":s,"violations":v,"decision_id":hashlib.sha256((s+str(v)).encode()).hexdigest(),"output_id":req.get("output_id",""),"timestamp":datetime.now(timezone.utc).isoformat()}
-        if self._audit_log: self._audit_log.append(d)
-        return d
-
-class Phase5Engine:
-    def __init__(self, last_phase4_hash="init"): pass
-
-# ── Tenant constraint files ─────────────────────────────────
-tmpdir = tempfile.mkdtemp()
-for tid in ("hosp-a", "bank-b", "default"):
-    os.makedirs(f"{tmpdir}/constraints/{tid}", exist_ok=True)
-    if tid == "hosp-a":
-        cs = {"status":"OK","canonical_constraints":[{"identity_string":"ALLERGY","canonical_form":"allergy_risk <= 0","classification":"LINEAR_SINGLE_VAR"}]}
-    elif tid == "bank-b":
-        cs = {"status":"OK","canonical_constraints":[{"identity_string":"MIN_AGE","canonical_form":"age >= 18","classification":"LINEAR_SINGLE_VAR"}]}
-    else:
-        cs = {"status":"OK","canonical_constraints":[{"identity_string":"AGE","canonical_form":"age >= 18","classification":"LINEAR_SINGLE_VAR"}]}
-    with open(f"{tmpdir}/constraints/{tid}/constraints.json","w") as f:
-        json.dump(cs, f)
-
-# ── EXACT production load_constraint_set ─────────────────────
-def load_constraint_set(tenant_id: str = "default"):
-    base_path = os.environ.get("CONSTRAINT_SET_PATH", "/etc/constraints.json")
-    if "{tenant_id}" in base_path:
-        path = base_path.format(tenant_id=tenant_id)
-    else:
-        path = base_path
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Constraint file not found: {path}")
-    with open(path, "r") as f:
-        return json.load(f)
-
-# ── Flask app with working static‑key fallback ───────────────
-os.environ["API_KEY"] = "sk-static-fallback"
-os.environ["CONSTRAINT_SET_PATH"] = f"{tmpdir}/constraints/{{tenant_id}}/constraints.json"
-
-AUDIT_LOG = AuditLog()
-GATEWAY = Phase4EnforcementGateway(audit_log=AUDIT_LOG)
+from app.auth import require_api_key, extract_tenant_from_key
+from app.logging import log_request_start, log_request_end, extract_error_type
+from app.errors import (
+    APIError, MissingConstraintSet, MissingBindings, MalformedJSON,
+    EnforcementError, ConstraintSetLoadError, GatewayUnavailable, error_response,
+)
+from engines.phase4_engine import Phase4EnforcementGateway
+from engines.phase5_engine import Phase5Engine
+from app.constraint_store import LocalFileConstraintStore, PostgreSQLConstraintStore
+from app.audit_log import LocalFileAuditLog, PostgreSQLAuditLog
 
 app = Flask(__name__)
 
-def require_api_key(f):
-    @wraps(f)
-    def dec(*args, **kw):
-        key = request.headers.get("X-API-Key","")
-        # Match the real extract_tenant_from_key logic
-        if key == os.environ["API_KEY"]:
-            g.tenant_id = "default"
-        elif key.startswith("sk-hosp"):
-            g.tenant_id = "hosp-a"
-        elif key.startswith("sk-bank"):
-            g.tenant_id = "bank-b"
-        else:
-            return jsonify({"error":True}), 401
-        return f(*args, **kw)
-    return dec
+# ── Startup ──────────────────────────────────────────────────
+@app.before_request
+def before_request():
+    g.request_id = str(uuid.uuid4())[:8]
+    log_request_start(g.request_id)
 
+@app.after_request
+def after_request(response):
+    endpoint = request.endpoint or "unknown"
+    error_type = None
+    try:
+        data = json.loads(response.get_data(as_text=True))
+        error_type = extract_error_type(data)
+    except Exception:
+        pass
+    log_request_end(endpoint, response.status_code, error_type)
+    return response
+
+def load_encryption_key():
+    key_hex = os.environ.get("PERSONAL_DATA_STORE_KEY")
+    if not key_hex:
+        print("WARNING: PERSONAL_DATA_STORE_KEY not set.")
+        return None
+    try:
+        return bytes.fromhex(key_hex)
+    except ValueError:
+        raise ValueError("PERSONAL_DATA_STORE_KEY must be a 64-character hex string")
+
+try:
+    ENCRYPTION_KEY = load_encryption_key()
+    print("Encryption key loaded" if ENCRYPTION_KEY else "Encryption key not set")
+except Exception as e:
+    print(f"FATAL STARTUP ERROR: {e}")
+    exit(1)
+
+# GAP-20: Select audit log backend based on DATABASE_URL
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL:
+    AUDIT_LOG = PostgreSQLAuditLog(DATABASE_URL)
+    print("Using PostgreSQL audit log backend")
+else:
+    AUDIT_LOG = LocalFileAuditLog()
+    print("Using local in-memory audit log backend")
+
+# GAP-19: Select constraint store backend
+if DATABASE_URL:
+    CONSTRAINT_STORE = PostgreSQLConstraintStore(DATABASE_URL)
+else:
+    base_path = os.environ.get("CONSTRAINT_SET_PATH", "/etc/constraints.json")
+    CONSTRAINT_STORE = LocalFileConstraintStore(base_path)
+
+GATEWAY = Phase4EnforcementGateway(audit_log=AUDIT_LOG)
+AUDIT = Phase5Engine(last_phase4_hash="init")
+
+# ── Health Check ──────────────────────────────────────────────
 @app.route('/health', methods=['GET'])
-def health():
-    return jsonify({"status":"healthy"}), 200
+def health_check():
+    return jsonify({"status": "healthy"}), 200
 
+# ── Main Enforcement Endpoint ──────────────────────────────────
 @app.route('/enforce', methods=['POST'])
 @require_api_key
 def enforce():
-    body = request.get_json()
-    if not body: return jsonify({"error":True}), 400
-    tid = g.tenant_id
-    cs = load_constraint_set(tid)
-    GATEWAY._enforceable = cs["canonical_constraints"]
-    bindings = body.get("bindings", {})
-    decision = GATEWAY.check_output({"bindings":bindings})
-    return jsonify(decision), 200
+    try:
+        try:
+            request_body = request.get_json()
+        except Exception as e:
+            raise MalformedJSON(str(e))
+        if not request_body:
+            raise MalformedJSON("Request body is empty")
 
-# ── Tests ───────────────────────────────────────────────────
-client = app.test_client()
-passed = failed = 0
-def check(label, condition):
-    global passed, failed
-    if condition: passed += 1; print(f"  PASS  {label}")
-    else: failed += 1; print(f"  FAIL  {label}")
+        output_id = request_body.get("output_id") or str(uuid.uuid4())
 
-print("=== app/api.py GAP‑18 Full Validation (corrected) ===\n")
+        # GAP-18: Determine tenant
+        tenant_id = getattr(g, "tenant_id", "default")
 
-# 1. Health
-check("GET /health → 200", client.get('/health').status_code == 200)
+        # GAP-19: Load constraints for this tenant via the store
+        constraint_set, version = CONSTRAINT_STORE.get_constraints(tenant_id)
 
-# 2. Tenant A
-resp = client.post('/enforce', json={"bindings":{"allergy_risk":0}}, headers={"X-API-Key":"sk-hosp-xxx"})
-check("Tenant A — ALLOW (allergy_risk <= 0 passes)", resp.json["status"]=="ALLOW")
-resp = client.post('/enforce', json={"bindings":{"allergy_risk":1}}, headers={"X-API-Key":"sk-hosp-xxx"})
-check("Tenant A — BLOCK (allergy_risk <= 0 violated)", resp.json["status"]=="BLOCK")
+        if not constraint_set or "canonical_constraints" not in constraint_set:
+            raise ConstraintSetLoadError("Constraint set is empty or malformed")
 
-# 3. Tenant B
-resp = client.post('/enforce', json={"bindings":{"age":35}}, headers={"X-API-Key":"sk-bank-xxx"})
-check("Tenant B — ALLOW (age >= 18 passes)", resp.json["status"]=="ALLOW")
-resp = client.post('/enforce', json={"bindings":{"age":16}}, headers={"X-API-Key":"sk-bank-xxx"})
-check("Tenant B — BLOCK (age >= 18 violated)", resp.json["status"]=="BLOCK")
+        # Load constraints into the gateway
+        GATEWAY._enforceable = constraint_set["canonical_constraints"]
 
-# 4. Static key fallback
-resp = client.post('/enforce', json={"bindings":{"age":35}}, headers={"X-API-Key":os.environ["API_KEY"]})
-check("Static key → tenant 'default' — ALLOW (age >= 18 passes)", resp.json["status"]=="ALLOW")
-resp = client.post('/enforce', json={"bindings":{"age":16}}, headers={"X-API-Key":os.environ["API_KEY"]})
-check("Static key → tenant 'default' — BLOCK (age >= 18 violated)", resp.json["status"]=="BLOCK")
+        bindings = None
+        if "bindings" in request_body:
+            bindings = request_body["bindings"]
+        elif "model_output" in request_body and "binding_schema" in request_body:
+            bindings = {}
+        else:
+            raise MissingBindings()
 
-# 5. Invalid key
-check("Invalid key → 401", client.post('/enforce', json={"bindings":{"age":35}}, headers={"X-API-Key":"bad-key"}).status_code == 401)
+        decision_request = {
+            "output_id": output_id,
+            "bindings": bindings,
+            "constraint_version": version,
+            "tenant_id": tenant_id,
+        }
+        decision = GATEWAY.check_output(decision_request)
+        decision["processed_at"] = datetime.now(timezone.utc).isoformat()
 
-# 6. Missing file
-try:
-    load_constraint_set("nonexistent")
-    check("Missing tenant file → FileNotFoundError", False)
-except FileNotFoundError:
-    check("Missing tenant file → FileNotFoundError", True)
+        http_status = 503 if decision["status"] == "GATEWAY_UNAVAILABLE" else 200
+        return jsonify(decision), http_status
 
-# 7. Backward compat (no placeholder)
-os.environ["CONSTRAINT_SET_PATH"] = f"{tmpdir}/constraints/hosp-a/constraints.json"
-default_set = load_constraint_set()
-check("Backward compat — loads default file", default_set["canonical_constraints"][0]["identity_string"] == "ALLERGY")
+    except APIError as api_err:
+        response, status_code = error_response(api_err, g.request_id)
+        return response, status_code
+    except Exception:
+        response, status_code = error_response(GatewayUnavailable(), g.request_id)
+        return response, status_code
 
-print(f"\n=== Results: {passed}/{passed+failed} passed ===")
-if failed == 0:
-    print("✓ app/api.py GAP‑18 VALIDATED — ready for commit\n")
-else:
-    print("✗ FIX FAILURES BEFORE COMMIT\n")
+# ── Error Handlers ──────────────────────────────────────────────
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({"error":True,"error_type":"NOT_FOUND","message":f"Endpoint {request.path} not found","retryable":False,"request_id":g.get("request_id","unknown")}),404
+
+@app.errorhandler(405)
+def method_not_allowed(e):
+    return jsonify({"error":True,"error_type":"METHOD_NOT_ALLOWED","message":f"{request.method} not allowed for {request.path}","retryable":False,"request_id":g.get("request_id","unknown")}),405
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
