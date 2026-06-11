@@ -1,0 +1,169 @@
+# UICP – Final Pre‑Public Audit (June 2026)
+
+**Purpose:** Confirm every validated engine, module, and integration test still passes before the public launch.  
+**Instructions:** Run each test below in Google Colab. After each test, record the result (PASS or FAIL) and paste the terminal output into this document. If any test fails, stop and report it before proceeding.
+
+---
+
+## 1. ENGINE VALIDATION SUITES
+
+### 1.1 Phase 1 – Structural Normalization
+
+- Open your Colab notebook.
+- Find the cell containing `normalize_v05.py` with the built‑in test harness.
+- Run the cell.
+- Expected output ends with:  
+  `VERDICT: ALL CLAIMS VALIDATED — Phase 1 is internally proven.`  
+  `Total tests: 26`  
+  `Failed: 0`
+- **Result:** ________ (PASS / FAIL)
+
+### 1.2 Phase 2 – Single‑Variable Semantic Analysis
+
+- Find the cell containing `phase2_engine.py` (v1.1) with the built‑in test harness.
+- Run the cell.
+- Expected output ends with:  
+  `VERDICT: Phase 2 engine (v1.1) is internally proven and aligned.`  
+  `RESULTS: 14 passed, 0 failed`
+- **Result:** ________ (PASS / FAIL)
+
+### 1.3 Phase 3 – Multi‑Variable Canonicalization
+
+- Find the cell containing `phase3_engine.py` with the built‑in test harness.
+- Run the cell.
+- Expected output ends with:  
+  `VERDICT: ALL CLAIMS VALIDATED — Phase 3 is externally proven.`  
+  `RESULTS: 21 passed, 0 failed`
+- **Result:** ________ (PASS / FAIL)
+
+### 1.4 Phase 4 – Enforcement Gateway
+
+- Find the cell containing `phase4_engine.py` with the combined test harness (original + GAP‑21 + GAP‑42 + GAP‑36 + GAP‑44).
+- Run the cell.
+- Expected output ends with:  
+  `COMBINED RESULTS: 73 passed, 0 failed`  
+  `✓ ALL TESTS PASS — Phase 4 engine … is ALIGNED.`
+- **Result:** ________ (PASS / FAIL)
+
+### 1.5 Phase 5 – Trust & Audit Engine
+
+- Find the cell containing `phase5_engine.py` with the combined test harness (original + GAP‑12 + GAP‑11 + GAP‑13/14).
+- Run the cell.
+- Expected output ends with:  
+  `COMBINED RESULTS: 101 passed, 0 failed`  
+  `✓ ALL TESTS PASS — Phase 5 … is ALIGNED.`
+- **Result:** ________ (PASS / FAIL)
+
+---
+
+## 2. MODULE VALIDATION SUITES
+
+### 2.1 Binding Extraction
+
+- Find the cell containing `binding_extraction.py` with the combined test harness (original + GAP‑36 + GAP‑43 + GAP‑47).
+- Run the cell.
+- Expected output ends with:  
+  `COMBINED RESULTS: 84 passed, 0 failed`
+- **Result:** ________ (PASS / FAIL)
+
+### 2.2 Decision Export
+
+- Find the cell containing `decision_export.py` with the built‑in test harness.
+- Run the cell.
+- Expected output includes:  
+  `[PASS] Export ID matches manifest`  
+  `[PASS] Phase 4 chain integrity verified`  
+  `Decision Record Export Module — VALIDATED`
+- **Result:** ________ (PASS / FAIL)
+
+### 2.3 Personal Data Store
+
+- Find the cell containing `export/personal_data_store.py` with the combined GAP‑44 + GAP‑45 test harness.
+- Run the cell.
+- Expected output ends with:  
+  `COMBINED RESULTS: 35 passed, 0 failed`
+- **Result:** ________ (PASS / FAIL)
+
+---
+
+## 3. INTEGRATION TEST
+
+### 3.1 Full Pipeline Integration
+
+- Find the cell containing the integration test (Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5).
+- Run the cell.
+- Expected output ends with:  
+  `INTEGRATION RESULTS: 11 passed, 0 failed`  
+  `VERDICT: Phase 1 → Phase 2 → Phase 3 pipeline is aligned.`
+- **Result:** ________ (PASS / FAIL)
+
+---
+
+## 4. PUBLIC VERIFICATION SCRIPTS
+
+### 4.1 Master Verification (verify_all_phases.py)
+
+- Find the cell containing `verify_all_phases.py`.
+- Run the cell.
+- Expected output ends with:  
+  `ALL PHASES VERIFIED — Phases 1‑5 are externally proven.`
+- **Result:** ________ (PASS / FAIL)
+
+### 4.2 Audit Bundle Verifier (verify_uicp_bundle.py)
+
+- Generate a sample audit bundle using the live‑demo cell.
+- Run `verify_uicp_bundle.py` against the exported bundle.
+- Expected output ends with:  
+  `All cryptographic claims verified.`
+- **Result:** ________ (PASS / FAIL)
+
+---
+
+## 5. REST API ENDPOINT TESTS
+
+### 5.1 API Endpoint Verification
+
+- Find the cell containing the REST API test suite (32/32 tests with the mock gateway).
+- Run the cell.
+- Expected output ends with:  
+  `=== Results: 32/32 passed ===`
+- **Result:** ________ (PASS / FAIL)
+
+---
+
+## 6. LIVE DEMO (SMOKE TEST)
+
+### 6.1 Live Model Enforcement
+
+- Find the cell containing the live‑demo script (with Groq API key).
+- Run the cell.
+- Expected output includes five tests (ALLOW, BLOCK, BLOCK, BLOCK, INCOMPLETE) and:  
+  `✓ LIVE DEMO PASSED — Pipeline enforced constraints against real model output.`
+- **Result:** ________ (PASS / FAIL)
+
+---
+
+## 7. FINAL VERDICT
+
+**Date of audit:** ________  
+**Auditor:** Emmanuel Semugga
+
+| Test | Result |
+|------|--------|
+| 1.1 Phase 1 engine |  |
+| 1.2 Phase 2 engine |  |
+| 1.3 Phase 3 engine |  |
+| 1.4 Phase 4 engine |  |
+| 1.5 Phase 5 engine |  |
+| 2.1 Binding extraction |  |
+| 2.2 Decision export |  |
+| 2.3 Personal data store |  |
+| 3.1 Full pipeline integration |  |
+| 4.1 verify_all_phases.py |  |
+| 4.2 verify_uicp_bundle.py |  |
+| 5.1 REST API endpoints |  |
+| 6.1 Live demo smoke test |  |
+
+**All tests passed:** YES / NO
+
+**If all tests passed, the system is ready for public launch.**
