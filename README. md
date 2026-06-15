@@ -245,10 +245,19 @@ REST API Gateway
 · tests/test_api_endpoints.py (API test suite)
 · Dockerfile (container specification)
 
-Live Demonstration
+## Live Demonstration
 
-A hard‑verdict live demo using Groq / Llama 3.1 is recorded and available at:
-https://youtube.com/shorts/5bcrtv_1pMQ
+A narrated 8‑minute live demo showing UICP enforcing constraints against
+a real Llama 3.1 model. Five test cases — ALLOW, BLOCK, BLOCK, BLOCK,
+INCOMPLETE — with cryptographic audit verification.
+
+[Watch the demo on YouTube](https://youtu.be/sGQq4Q-gN6Q)
+
+**Verify it yourself:**
+```bash
+git clone https://github.com/emmanuelsemugga-code/uicp-pipeline.git
+cd uicp-pipeline
+python3 verify_uicp_bundle.py audit_export/ public_keys.json
 
 Disclosure boundary
 
