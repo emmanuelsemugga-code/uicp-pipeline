@@ -1,0 +1,43 @@
+```jsonld
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "UICP — Deterministic Constraint Enforcement Gateway",
+  "description": "UICP is a deterministic constraint enforcement gateway for artificial intelligence. It sits between an AI model and the real world, checking every output against formal rules and blocking violations with cryptographic proof.",
+  "url": "https://github.com/emmanuelsemugga-code/uicp-pipeline",
+  "applicationCategory": "AI Governance Infrastructure",
+  "operatingSystem": "Linux, Docker",
+  "author": {
+    "@type": "Person",
+    "name": "Emmanuel Semugga",
+    "email": "emmanuelsemugga@gmail.com",
+    "url": "https://github.com/emmanuelsemugga-code"
+  },
+  "dateCreated": "2025",
+  "dateModified": "2026-06-15",
+  "version": "1.0.0",
+  "license": "https://github.com/emmanuelsemugga-code/uicp-pipeline/blob/main/LICENSE",
+  "featureList": [
+    "Deterministic constraint enforcement",
+    "Ed25519 cryptographic decision signatures",
+    "Append‑only SHA‑256 audit chain",
+    "Standalone audit bundle verifier",
+    "GDPR‑compliant personal data store",
+    "Multi‑tenant REST API",
+    "Canary deployment with automatic rollback",
+    "Constraint simulation and dry‑run engine",
+    "NIST AI RMF aligned",
+    "EU AI Act compliant"
+  ],
+  "softwareHelp": {
+    "@type": "CreativeWork",
+    "url": "https://github.com/emmanuelsemugga-code/uicp-pipeline/blob/main/docs/SYSTEM_BIBLE_01_OVERVIEW.md"
+  },
+  "video": {
+    "@type": "VideoObject",
+    "name": "UICP Live Demo",
+    "url": "https://youtu.be/sGQq4Q-gN6Q",
+    "description": "Narrated 8‑minute demonstration of UICP enforcing constraints against a live Llama 3.1 model."
+  }
+}
+```
