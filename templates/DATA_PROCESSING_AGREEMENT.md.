@@ -1,0 +1,162 @@
+# UICP Data Processing Agreement — Template
+
+**GDPR‑compliant DPA for UICP pilot partners and production clients.**
+
+This Data Processing Agreement (DPA) is entered into between **UICP**
+(the Processor, represented by Emmanuel Semugga) and the **Client**
+(the Controller) identified in the signed Pilot Agreement or Master
+Service Agreement.
+
+---
+
+## 1. Definitions
+
+- **Controller** — the Client, who determines the purposes and means of
+  processing personal data.
+- **Processor** — UICP, who processes personal data on behalf of the
+  Controller.
+- **Personal Data** — any information relating to an identified or
+  identifiable natural person (GDPR Article 4(1)).
+- **Binding Values** — numeric values extracted from model outputs
+  (e.g., age, income, risk score) that may constitute personal data when
+  linked to an identifiable individual.
+- **Audit Chain** — the append‑only cryptographic log of enforcement
+  decisions maintained by UICP.
+
+---
+
+## 2. Subject Matter and Duration
+
+- **Subject matter:** Processing of binding values for the purpose of
+  deterministic constraint enforcement and audit trail generation.
+- **Nature and purpose:** The Processor enforces formal constraints on
+  model outputs provided by the Controller, records enforcement decisions,
+  and produces a cryptographically signed audit log.
+- **Duration:** This DPA is effective for the duration of the underlying
+  service agreement (Pilot Agreement or Master Service Agreement).
+- **Data categories:** Extracted binding values from model outputs —
+  typically numeric values such as age, income, credit score, risk score,
+  employment status, loan amount. No special categories of personal data
+  (GDPR Article 9) are processed.
+- **Data subjects:** Individuals whose data appears in the Controller's
+  model outputs — typically loan applicants, patients, taxpayers, or
+  benefit claimants.
+
+---
+
+## 3. Processor Obligations
+
+UICP agrees to:
+
+1. **Process personal data only on documented instructions from the
+   Controller** — specifically, to enforce the constraints and extraction
+   schema provided by the Controller.
+2. **Implement appropriate technical and organisational measures** to
+   protect personal data, including:
+   - Encryption at rest (AES‑256‑GCM for the personal data store)
+   - Encryption in transit (HTTPS/TLS for the REST API)
+   - Role‑based access control (gateway, auditor, operator roles)
+   - Access event logging for every read, write, and erasure
+3. **Ensure that persons authorised to process personal data are bound
+   by confidentiality obligations.**
+4. **Assist the Controller in responding to data subject requests**
+   (access, rectification, erasure, restriction, portability) within the
+   timeframes required by GDPR.
+5. **Assist the Controller in complying with GDPR Articles 32‑36**
+   (security, breach notification, data protection impact assessment,
+   prior consultation).
+6. **Notify the Controller without undue delay** (within 48 hours of
+   confirmation) upon becoming aware of a personal data breach.
+7. **Delete or return all personal data to the Controller** upon
+   termination of the service agreement, unless retention is required by
+   applicable law. The audit chain (which contains only SHA‑256 hash
+   pointers, not raw personal data) will be retained per the Controller's
+   retention policy.
+8. **Make available to the Controller all information necessary to
+   demonstrate compliance with GDPR Article 28** and allow for and
+   contribute to audits conducted by the Controller or an auditor
+   mandated by the Controller.
+
+---
+
+## 4. Sub‑Processors
+
+- **Current sub‑processors:** None. UICP does not currently engage any
+  third‑party sub‑processor for personal data.
+- **Future sub‑processors:** UICP will notify the Controller of any
+  intended changes concerning the addition or replacement of
+  sub‑processors, giving the Controller the opportunity to object.
+- Any sub‑processor engagement will be governed by a written contract
+  imposing the same data protection obligations as this DPA.
+
+---
+
+## 5. Data Subject Rights
+
+- The Controller is responsible for receiving and verifying data subject
+  requests.
+- UICP will, within 5 business days of receiving a written instruction
+  from the Controller:
+  - Provide a copy of all personal data relating to a specific data
+    subject (Right of Access, Article 15)
+  - Rectify inaccurate personal data (Article 16)
+  - Erase personal data from the personal data store (Article 17)
+  - Restrict processing (Article 18)
+  - Provide data in a structured, commonly used, machine‑readable format
+    (Article 20)
+- Erasure from the personal data store does not affect the audit chain,
+  which is append‑only and immutable. The audit chain records that
+  erasure occurred, preserving the cryptographic integrity of the chain.
+
+---
+
+## 6. Security Measures
+
+UICP implements the following technical and organisational measures:
+
+| Measure | Implementation |
+|---------|----------------|
+| Encryption at rest | AES‑256‑GCM for personal data store |
+| Encryption in transit | TLS 1.3 for API communication |
+| Access control | API‑key authentication, role‑based access |
+| Access logging | Every read/write/erase logged with timestamp and role |
+| Key management | Ed25519 signing keys with defined validity (12 months), rotation, and revocation |
+| Fail‑safe defaults | Missing data triggers BLOCK, not silent ALLOW |
+| Immutable audit trail | Append‑only cryptographic chain, SHA‑256 hashing |
+| Data minimisation | Only extracted numeric bindings stored; original model output not retained |
+
+---
+
+## 7. International Data Transfers
+
+- UICP is deployed on infrastructure designated by the Controller (cloud
+  or on‑premises). The Controller determines the geographical location
+  of data processing.
+- If the Controller deploys UICP in a jurisdiction that requires
+  additional safeguards for international transfers (e.g., EU Standard
+  Contractual Clauses), the Controller is responsible for ensuring those
+  safeguards are in place. UICP will cooperate with the Controller to
+  implement required transfer mechanisms.
+
+---
+
+## 8. Liability
+
+- Each party's liability under this DPA is subject to the limitations
+  of liability set forth in the underlying service agreement (Pilot
+  Agreement or Master Service Agreement).
+- Nothing in this DPA limits either party's liability for breaches of
+  GDPR that result in fines or penalties imposed by a supervisory
+  authority.
+
+---
+
+## 9. Governing Law
+
+This DPA is governed by the laws of the jurisdiction specified in the
+underlying service agreement. In the absence of such specification, the
+laws of Uganda shall apply.
+
+---
+
+**Contact:** emmanuelsemugga@gmail.com
