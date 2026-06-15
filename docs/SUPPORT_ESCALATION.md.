@@ -1,0 +1,159 @@
+# UICP Support & Escalation Procedure
+
+**For pilot partners and production clients operating UICP in their
+decision pipeline.**
+
+This document defines the support tiers, response times, escalation
+paths, and what to do when the enforcement gateway is unavailable or
+producing unexpected results.
+
+---
+
+## Support Tiers
+
+### Tier 1 — Community Support (Pilot Partners)
+
+- **Channel:** GitHub Issues
+- **Response time:** Within 2 business days
+- **Coverage:** Monday–Friday, 09:00–17:00 EAT (UTC+3)
+- **What's covered:**
+  - Clarification questions about constraint syntax or extraction schemas
+  - Bug reports (non‑critical)
+  - Feature requests
+  - Documentation requests
+
+### Tier 2 — Email Support (Standard Tier)
+
+- **Channel:** emmanuelsemugga@gmail.com
+- **Response time:** Within 1 business day
+- **Coverage:** Monday–Friday, 09:00–17:00 EAT (UTC+3)
+- **What's covered:**
+  - Everything in Tier 1
+  - Constraint validation assistance
+  - Extraction schema debugging
+  - Audit bundle verification help
+
+### Tier 3 — Dedicated Support (Enterprise Tier)
+
+- **Channel:** Email + phone
+- **Response time:** Within 4 hours
+- **Coverage:** Monday–Friday, 08:00–20:00 EAT (UTC+3)
+- **What's covered:**
+  - Everything in Tier 2
+  - Emergency gateway‑unavailable incidents
+  - Cryptographic key compromise response
+  - Audit chain integrity questions
+
+---
+
+## Severity Levels
+
+### Severity 1 — Critical (Gateway Unavailable)
+
+**What it looks like:**
+- The `/health` endpoint returns a non‑200 status
+- The `/enforce` endpoint returns `GATEWAY_UNAVAILABLE` for all requests
+- The Docker container is not running
+
+**Response:**
+- Enterprise clients: contact UICP by phone immediately
+- Standard clients: email with subject line `URGENT: Gateway Unavailable`
+- UICP will respond within 4 hours (Enterprise) or by next business day
+  (Standard)
+
+**Client actions while waiting:**
+- All decisions should be routed to manual review (fail‑safe default)
+- Do not allow the model output to proceed without human approval
+- Check Docker container status and logs
+- If the container is running but unresponsive, restart it
+
+### Severity 2 — High (Unexpected BLOCK Rate)
+
+**What it looks like:**
+- BLOCK rate suddenly increases by more than 20% compared to baseline
+- Constraints that were passing are now failing
+
+**Response:**
+- Email UICP with the subject line `HIGH: Unexpected BLOCK rate`
+- Attach the last 50 enforcement decisions (exported from the audit log)
+- UICP will respond within 1 business day to investigate
+
+**Client actions while waiting:**
+- Check whether the extraction schema is still correctly parsing model
+  outputs (the model's output format may have changed)
+- Check whether the constraint set was recently updated
+- If a constraint update caused the issue, roll back to the previous
+  version
+
+### Severity 3 — Medium (Extraction Failures)
+
+**What it looks like:**
+- Extraction returns `INCOMPLETE` for variables that were previously
+  extractable
+- Specific model outputs are not being parsed correctly
+
+**Response:**
+- Email UICP with the subject line `MEDIUM: Extraction failures`
+- Attach sample model outputs that are failing
+- UICP will respond within 2 business days
+
+### Severity 4 — Low (General Questions)
+
+**What it looks like:**
+- Questions about constraint syntax, extraction schemas, or documentation
+
+**Response:**
+- Open a GitHub Issue or email UICP
+- Response within 2 business days (Community) or 1 business day (Standard)
+
+---
+
+## Escalation Path
+
+If the initial response does not resolve the issue:
+
+1. **First escalation:** Reply to the same email thread with
+   `ESCALATE` in the subject line. The issue will be reviewed by a
+   senior engineer.
+
+2. **Second escalation:** If unresolved after 3 business days, contact
+   Emmanuel Semugga directly at emmanuelsemugga@gmail.com with the
+   subject line `ESCALATION: [Issue summary]`.
+
+3. **Emergency escalation (Enterprise only):** Call the phone number
+   provided in your Enterprise agreement. This is for Severity 1
+   incidents only.
+
+---
+
+## What To Include In Every Support Request
+
+To help us resolve your issue quickly, please include:
+
+- **Tenant ID** (if multi‑tenant)
+- **Constraint set version** in use
+- **Timestamp** of the affected decision(s)
+- **The raw model output** that was being enforced (if extraction is
+  failing)
+- **The expected result vs. the actual result**
+- **Any recent changes** to the model, extraction schema, or constraint
+  set
+
+---
+
+## Hours of Operation
+
+UICP support operates on **East Africa Time (EAT, UTC+3)**.
+
+| Day | Hours |
+|-----|-------|
+| Monday–Thursday | 09:00–17:00 |
+| Friday | 09:00–14:00 |
+| Saturday–Sunday | Closed |
+
+Emergency phone support for Enterprise clients is available outside these
+hours for Severity 1 incidents only.
+
+---
+
+**Contact:** emmanuelsemugga@gmail.com
