@@ -1,0 +1,167 @@
+# UICP Pilot Agreement — Template
+
+**30‑Day Free Pilot for Deterministic Constraint Enforcement**
+
+This agreement is between **UICP** (the provider, represented by
+Emmanuel Semugga) and the **Pilot Partner** (the organisation deploying
+UICP in a non‑production evaluation environment).
+
+---
+
+## 1. Purpose
+
+The Pilot Partner wishes to evaluate UICP as a deterministic constraint
+enforcement layer for their AI decision pipeline. This agreement defines
+the scope, duration, and responsibilities of both parties during the
+30‑day pilot period.
+
+---
+
+## 2. Duration
+
+The pilot begins on: __________________ (the "Start Date")
+
+The pilot ends on: __________________ (30 days after the Start Date, the
+"End Date")
+
+The pilot may be extended by mutual written agreement.
+
+---
+
+## 3. What UICP Provides
+
+During the pilot period, UICP provides:
+
+- **Access to the UICP REST API** at an endpoint provided to the Pilot
+  Partner.
+- **One API key** for authentication.
+- **Constraint enforcement** against a single constraint set (up to 10
+  constraints) provided by the Pilot Partner.
+- **Up to 1,000 enforcement decisions per month.** Additional volume may
+  be negotiated.
+- **Weekly audit bundle export** with cryptographic verification.
+- **Email support** (emmanuelsemugga@gmail.com) with response within 1
+  business day.
+- **Documentation** — the complete UICP public repository, including
+  the onboarding checklist, operator manual, and API reference.
+
+---
+
+## 4. What the Pilot Partner Provides
+
+The Pilot Partner agrees to:
+
+- **Provide a constraint set** — the formal rules to be enforced on model
+  outputs. The Pilot Partner is solely responsible for the correctness,
+  completeness, and legality of these constraints.
+- **Provide an extraction schema** — the mapping from model output text
+  to numeric bindings (regex patterns, JSONPaths, tags, or constants).
+  The Pilot Partner is responsible for testing and validating this schema.
+- **Provide sample model outputs** for testing during the first week of
+  the pilot.
+- **Integrate the UICP `/enforce` endpoint** into their decision pipeline
+  for evaluation purposes (not production decisions unless explicitly
+  agreed).
+- **Report any issues, unexpected behaviour, or bugs** to UICP within 2
+  business days of discovery.
+
+---
+
+## 5. Data Handling
+
+- **Model outputs** sent to the UICP endpoint are processed in memory.
+  Raw model outputs are not stored by UICP unless explicitly requested
+  by the Pilot Partner for debugging purposes.
+- **Extracted binding values** are stored in an encrypted personal data
+  store (AES‑256) and are retained for 30 days after the pilot ends,
+  after which they are permanently deleted.
+- **Audit log entries** (decision status, constraint identities, timestamps,
+  and cryptographic hashes) are retained as part of the immutable audit
+  chain. These entries contain no raw personal data — only SHA‑256 hash
+  pointers.
+- The Pilot Partner retains full ownership of all data processed during
+  the pilot.
+- UICP will not use pilot data for any purpose other than providing the
+  enforcement service and improving the UICP system.
+
+---
+
+## 6. Limitations of Liability
+
+- **UICP is a tool.** It enforces the constraints provided by the Pilot
+  Partner. UICP does not make decisions, does not guarantee the correctness
+  of constraints, and does not guarantee the accuracy of extracted
+  bindings.
+- **The Pilot Partner is responsible** for the correctness, completeness,
+  and legality of its constraints and extraction schemas.
+- **UICP is not liable** for any damages resulting from:
+  - Incorrectly defined constraints
+  - Inaccurate extraction schemas
+  - Decisions made by the Pilot Partner based on UICP's ALLOW/BLOCK
+    output
+  - Service unavailability during the pilot period
+- **UICP warrants** that the enforcement engine operates deterministically,
+  that all decisions are cryptographically signed, and that the audit
+  chain is append‑only and verifiable.
+
+---
+
+## 7. Confidentiality
+
+- **UICP intellectual property** — the enforcement engines and internal
+  algorithms remain the sole property of UICP and are provided for use
+  during the pilot only. The Pilot Partner agrees not to reverse‑engineer,
+  decompile, or redistribute any UICP software.
+- **Pilot Partner data** — all data sent to the UICP endpoint remains the
+  confidential property of the Pilot Partner. UICP will not disclose pilot
+  data to any third party without written consent.
+
+---
+
+## 8. Termination
+
+- Either party may terminate this agreement with 7 days' written notice.
+- Upon termination, UICP will:
+  - Disable the Pilot Partner's API key within 24 hours.
+  - Export the complete audit log and deliver it to the Pilot Partner.
+  - Delete all personal data (extracted binding values) from the personal
+    data store within 30 days.
+- The Pilot Partner's obligation to not reverse‑engineer UICP software
+  survives termination of this agreement.
+
+---
+
+## 9. After the Pilot
+
+At the end of the pilot period:
+
+- The Pilot Partner may choose to:
+  - **Extend the pilot** (by mutual agreement)
+  - **Convert to a paid tier** (Standard or Enterprise)
+  - **Terminate** and receive their audit log export
+- If the Pilot Partner converts to a paid tier within 30 days of the pilot
+  ending, the pilot period fees are waived.
+
+---
+
+## 10. Signatures
+
+**For UICP:**
+
+Name: Emmanuel Semugga
+Title: Founder
+Date: __________________
+Signature: __________________
+
+**For Pilot Partner:**
+
+Organisation: __________________
+Name: __________________
+Title: __________________
+Date: __________________
+Signature: __________________
+
+---
+
+**Contact:** emmanuelsemugga@gmail.com
+**Repository:** github.com/emmanuelsemugga-code/uicp-pipeline
