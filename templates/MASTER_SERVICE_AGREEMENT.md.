@@ -1,0 +1,170 @@
+# UICP Master Service Agreement — Template
+
+**For production clients deploying UICP as a deterministic constraint
+enforcement gateway.**
+
+This Master Service Agreement (MSA) is entered into between **UICP**
+(the Provider, represented by Emmanuel Semugga) and the **Client**
+(the organisation deploying UICP in a production environment).
+
+---
+
+## 1. Services
+
+UICP provides a deterministic constraint enforcement gateway that:
+
+- Accepts model outputs via a REST API endpoint
+- Extracts numeric bindings using the Client's extraction schema
+- Enforces formal constraints provided by the Client
+- Produces cryptographically signed ALLOW/BLOCK decisions
+- Maintains an append‑only, verifiable audit log
+
+The specific service tier (Standard or Enterprise) is defined in the
+attached Service Order.
+
+---
+
+## 2. Term and Termination
+
+- **Initial term:** 12 months from the Effective Date.
+- **Renewal:** Automatic renewal for successive 12‑month periods unless
+  either party gives 30 days' written notice before the end of the
+  current term.
+- **Termination for cause:** Either party may terminate this agreement
+  if the other party materially breaches and fails to cure the breach
+  within 30 days of written notice.
+- **Effect of termination:** Upon termination, UICP will:
+  - Disable the Client's API keys within 24 hours
+  - Export the complete audit log and deliver it to the Client
+  - Delete all personal data (extracted binding values) within 30 days
+  - Retain the audit chain (hash pointers only) per the Client's
+    retention policy
+
+---
+
+## 3. Fees and Payment
+
+- Fees are defined in the attached Service Order and correspond to the
+  selected tier (Standard or Enterprise).
+- Invoices are issued monthly and are payable within 30 days.
+- Late payments may result in service suspension after 15 days' written
+  notice.
+- All fees are in United States dollars unless otherwise agreed.
+
+---
+
+## 4. Client Responsibilities
+
+The Client is responsible for:
+
+- Defining constraints that are correct, complete, and lawful
+- Defining extraction schemas that accurately parse model outputs
+- Testing constraints and schemas before production deployment
+- Making the final decision based on UICP's ALLOW/BLOCK output
+- Complying with all applicable laws and regulations
+- Maintaining the confidentiality of API keys
+- Notifying UICP of any suspected security breach within 24 hours
+
+---
+
+## 5. Service Level Agreement
+
+The SLA for each tier is defined in the attached Service Order.
+
+- **Standard Tier:** 99.5% uptime during business hours (08:00–18:00 EAT,
+  Monday–Friday).
+- **Enterprise Tier:** 99.9% uptime, 24/7.
+
+Uptime is measured at the `/health` endpoint. If UICP fails to meet the
+SLA in any calendar month, the Client is entitled to a service credit
+equal to 10% of the monthly fee for that month, applied to the following
+month's invoice.
+
+---
+
+## 6. Warranties
+
+UICP warrants that:
+
+- The enforcement engine operates deterministically — identical inputs
+  always produce identical outputs
+- Every enforcement decision is cryptographically signed with Ed25519
+- The audit chain is append‑only and verifiable
+- The personal data store is encrypted at rest with AES‑256‑GCM
+- UICP returns GATEWAY_UNAVAILABLE rather than ALLOW when it cannot
+  safely proceed
+
+UICP does NOT warrant that:
+
+- The Client's constraints are correct, complete, or fair
+- The Client's extraction schema is accurate
+- ALLOW decisions are the correct decisions
+
+---
+
+## 7. Limitation of Liability
+
+- UICP's total liability under this agreement is limited to the fees
+  paid by the Client in the 12 months preceding the claim.
+- UICP is not liable for indirect, consequential, or special damages.
+- Nothing in this agreement limits liability for fraud, gross negligence,
+  or any liability that cannot be excluded by law.
+
+---
+
+## 8. Intellectual Property
+
+- UICP retains all rights to the enforcement engines, algorithms, and
+  internal documentation.
+- The Client retains all rights to its data, constraint sets, and
+  extraction schemas.
+- The Client agrees not to reverse‑engineer, decompile, or redistribute
+  any UICP software.
+
+---
+
+## 9. Confidentiality
+
+- Both parties agree to keep confidential all non‑public information
+  received from the other party.
+- Confidentiality obligations survive termination of this agreement for
+  3 years.
+
+---
+
+## 10. Data Processing
+
+Data processing is governed by the Data Processing Agreement (DPA)
+executed alongside this MSA.
+
+---
+
+## 11. Governing Law
+
+This agreement is governed by the laws of Uganda. Any disputes shall be
+resolved through binding arbitration in Kampala, Uganda.
+
+---
+
+## 12. Signatures
+
+**For UICP:**
+
+Name: Emmanuel Semugga
+Title: Founder
+Date: __________________
+Signature: __________________
+
+**For Client:**
+
+Organisation: __________________
+Name: __________________
+Title: __________________
+Date: __________________
+Signature: __________________
+
+---
+
+**Attachments:**
+- Service Order (defining tier, fees, and SLA)
+- Data Processing Agreement
