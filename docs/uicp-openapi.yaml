@@ -1,0 +1,370 @@
+```yaml
+openapi: "3.0.3"
+info:
+  title: "UICP — Deterministic Constraint Enforcement API"
+  description: |
+    REST API for the UICP enforcement gateway. Accepts model outputs
+    (raw text or pre‑extracted bindings) and returns deterministic
+    ALLOW/BLOCK decisions with cryptographic proof.
+
+    Two request modes are supported:
+    1. **Raw model output** — send the model's text plus a binding
+       schema and constraint set. UICP extracts bindings and enforces
+       constraints in one call.
+    2. **Pre‑extracted bindings** — send already‑parsed numeric
+       bindings plus a constraint set. UICP only enforces.
+
+    Authentication: include an `X‑API‑Key` header with every request.
+  version: "1.0.0"
+  contact:
+    name: "Emmanuel Semugga"
+    email: "emmanuelsemugga@gmail.com"
+  license:
+    name: "MIT"
+    url: "https://github.com/emmanuelsemugga-code/uicp-pipeline/blob/main/LICENSE"
+
+servers:
+  - url: "http://localhost:5000"
+    description: "Local Docker deployment"
+  - url: "https://your-uicp-endpoint.example.com"
+    description: "Production managed endpoint"
+
+paths:
+  /health:
+    get:
+      summary: "Health check"
+      description: |
+        Returns the gateway status. Used for Docker health checks,
+        Kubernetes liveness probes, and monitoring.
+      operationId: healthCheck
+      tags:
+        - System
+      responses:
+        "200":
+          description: "Gateway is healthy"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: "healthy"
+
+  /enforce:
+    post:
+      summary: "Enforce constraints on a model output"
+      description: |
+        Main enforcement endpoint. Accepts two request modes.
+
+        **Mode 1 — Raw model output:**
+        Provide `model_output`, `binding_schema`, and `constraint_set`.
+        UICP extracts bindings from the model output and enforces
+        constraints.
+
+        **Mode 2 — Pre‑extracted bindings:**
+        Provide `bindings` and `constraint_set`. UICP enforces
+        constraints on the provided bindings.
+      operationId: enforce
+      tags:
+        - Enforcement
+      parameters:
+        - name: X‑API‑Key
+          in: header
+          required: true
+          schema:
+            type: string
+          description: "API key for authentication"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/RawModeRequest"
+                - $ref: "#/components/schemas/BindingsModeRequest"
+            examples:
+              rawMode:
+                summary: "Raw model output mode"
+                value:
+                  model_output: "Loan for client age: 35. Risk score: 8. APPROVE."
+                  binding_schema:
+                    age:
+                      method: "regex"
+                      pattern: "age[=: ]*(?P<value>\\d+)"
+                    risk:
+                      method: "regex"
+                      pattern: "risk[=: ]*(?P<value>\\d+)"
+                  constraint_set:
+                    objective_id: "LOAN_APPROVAL"
+                    constraints:
+                      - "age >= 18"
+                      - "risk <= 20"
+              bindingsMode:
+                summary: "Pre‑extracted bindings mode"
+                value:
+                  bindings:
+                    age: 35
+                    risk: 8
+                  constraint_set:
+                    objective_id: "LOAN_APPROVAL"
+                    constraints:
+                      - "age >= 18"
+                      - "risk <= 20"
+      responses:
+        "200":
+          description: "Enforcement completed (ALLOW or BLOCK)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnforcementResponse"
+              examples:
+                allow:
+                  summary: "ALLOW decision"
+                  value:
+                    status: "ALLOW"
+                    violations: []
+                    decision_id: "abc123def456..."
+                    output_id: "req-001"
+                    timestamp: "2026-06-15T12:00:00Z"
+                block:
+                  summary: "BLOCK decision"
+                  value:
+                    status: "BLOCK"
+                    violations:
+                      - constraint_identity: "C_AGE"
+                        canonical_form: "age >= 18"
+                        actual_value_hash: "sha256..."
+                        expected: "age >= 18"
+                    decision_id: "def456abc123..."
+                    output_id: "req-002"
+                    timestamp: "2026-06-15T12:01:00Z"
+        "400":
+          description: "Malformed request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missingConstraintSet:
+                  value:
+                    error: true
+                    error_type: "MISSING_CONSTRAINT_SET"
+                    message: "constraint_set is required"
+                    retryable: false
+                    request_id: "req-uuid"
+                malformedJSON:
+                  value:
+                    error: true
+                    error_type: "MALFORMED_JSON"
+                    message: "Request body is not valid JSON"
+                    retryable: false
+                    request_id: "req-uuid"
+        "401":
+          description: "Authentication failed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missingKey:
+                  value:
+                    error: true
+                    error_type: "MISSING_API_KEY"
+                    message: "X‑API‑Key header is required"
+                    retryable: false
+                    request_id: "req-uuid"
+                invalidKey:
+                  value:
+                    error: true
+                    error_type: "INVALID_API_KEY"
+                    message: "X‑API‑Key is invalid"
+                    retryable: false
+                    request_id: "req-uuid"
+        "503":
+          description: "Gateway unavailable (fail‑safe activated)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnforcementResponse"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: ["healthy"]
+          description: "Gateway health status"
+
+    RawModeRequest:
+      type: object
+      required:
+        - model_output
+        - binding_schema
+        - constraint_set
+      properties:
+        model_output:
+          type: string
+          description: "Raw text output from the AI model"
+        binding_schema:
+          type: object
+          description: "Mapping of variable names to extraction methods"
+          additionalProperties:
+            type: object
+            required:
+              - method
+            properties:
+              method:
+                type: string
+                enum: ["regex", "jsonpath", "tag", "constant"]
+              pattern:
+                type: string
+                description: "Regex pattern with named capture group 'value' (regex method only)"
+              path:
+                type: string
+                description: "Dotted JSON path (jsonpath method only)"
+              tag:
+                type: string
+                description: "Tag name (tag method only)"
+              value:
+                type: integer
+                description: "Constant value (constant method only)"
+        constraint_set:
+          type: object
+          required:
+            - objective_id
+            - constraints
+          properties:
+            objective_id:
+              type: string
+              description: "Human‑readable identifier for this constraint set"
+            constraints:
+              type: array
+              items:
+                type: string
+              description: "List of constraint strings in canonical form (e.g., 'age >= 18')"
+        output_id:
+          type: string
+          description: "Optional client‑supplied identifier. Auto‑generated if omitted."
+
+    BindingsModeRequest:
+      type: object
+      required:
+        - bindings
+        - constraint_set
+      properties:
+        bindings:
+          type: object
+          description: "Pre‑extracted numeric bindings (variable name → integer value)"
+          additionalProperties:
+            type: integer
+        constraint_set:
+          type: object
+          required:
+            - objective_id
+            - constraints
+          properties:
+            objective_id:
+              type: string
+              description: "Human‑readable identifier for this constraint set"
+            constraints:
+              type: array
+              items:
+                type: string
+              description: "List of constraint strings in canonical form"
+        output_id:
+          type: string
+          description: "Optional client‑supplied identifier. Auto‑generated if omitted."
+
+    EnforcementResponse:
+      type: object
+      required:
+        - status
+        - violations
+        - decision_id
+        - output_id
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: ["ALLOW", "BLOCK", "GATEWAY_UNAVAILABLE"]
+          description: "Enforcement decision"
+        violations:
+          type: array
+          items:
+            type: object
+            properties:
+              constraint_identity:
+                type: string
+                description: "Identity of the violated constraint"
+              canonical_form:
+                type: string
+                description: "The constraint as evaluated"
+              actual_value_hash:
+                type: string
+                description: "SHA‑256 hash of the actual binding value (GDPR‑compliant)"
+              expected:
+                type: string
+                description: "The constraint expectation"
+        decision_id:
+          type: string
+          description: "SHA‑256 hash of the decision record"
+        output_id:
+          type: string
+          description: "Client‑supplied or auto‑generated request identifier"
+        timestamp:
+          type: string
+          format: date‑time
+          description: "ISO 8601 timestamp of the enforcement decision"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - error_type
+        - message
+        - retryable
+        - request_id
+      properties:
+        error:
+          type: boolean
+          description: "Always true for error responses"
+        error_type:
+          type: string
+          enum:
+            - MISSING_API_KEY
+            - INVALID_API_KEY
+            - MISSING_CONSTRAINT_SET
+            - MISSING_BINDINGS
+            - MALFORMED_JSON
+            - NOT_FOUND
+            - METHOD_NOT_ALLOWED
+            - GATEWAY_ERROR
+          description: "Machine‑parseable error type"
+        message:
+          type: string
+          description: "Human‑readable error description"
+        retryable:
+          type: boolean
+          description: "Whether the client should retry the same request"
+        request_id:
+          type: string
+          description: "Unique identifier for this request (for support)"
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X‑API‑Key
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: System
+    description: "Health and status endpoints"
+  - name: Enforcement
+    description: "Constraint enforcement endpoints"
+```
