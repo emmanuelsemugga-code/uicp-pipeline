@@ -1,0 +1,144 @@
+[
+  {
+    "status": "ALLOW",
+    "violations": [],
+    "decision_id": "cad687fe8db03cab80e6bd959205f2b0b8efaa1449fd8a4d2084ab970399b206",
+    "output_id": "req-001",
+    "timestamp": "2026-06-16T10:40:42.644733+00:00",
+    "binding_evidence": {},
+    "injection_warnings": [],
+    "verification_record": {
+      "verified": [],
+      "unverified": [],
+      "mismatches": [],
+      "source_errors": []
+    },
+    "gdpr_compliant": true,
+    "personal_data_store": "not_configured",
+    "decision_signature": null,
+    "decision_hash": "93d53174ec40c1e3a47505ab6e66d93757801925848917b96e2f4e0a3ba2befb",
+    "_chain_hash": "53256e400d7958ff8e19825be77204d4462d937a61e1b77b3eeda2f428100bec"
+  },
+  {
+    "status": "BLOCK",
+    "violations": [
+      {
+        "constraint_identity": "C_AGE",
+        "canonical_form": "age >= 18",
+        "actual_value_hash": "b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9",
+        "actual_value_erased": false,
+        "personal_data_record_id": null,
+        "expected": "age >= 18"
+      }
+    ],
+    "decision_id": "861868f9b89163c8959e70c20e0e306ef6bae5a3d49d967374db7e358f1d7371",
+    "output_id": "req-002",
+    "timestamp": "2026-06-16T10:40:42.870270+00:00",
+    "binding_evidence": {},
+    "injection_warnings": [],
+    "verification_record": {
+      "verified": [],
+      "unverified": [],
+      "mismatches": [],
+      "source_errors": []
+    },
+    "gdpr_compliant": true,
+    "personal_data_store": "not_configured",
+    "decision_signature": null,
+    "decision_hash": "7aadbe2b6ee8fec31bd039ddfdb1581c2a4f1c2165d8cf465874b60abe79be3b",
+    "_chain_hash": "cbc295ed1406572855038714fd5d5c2d07a56d45a8271325a88fb385facc5d4a"
+  },
+  {
+    "status": "BLOCK",
+    "violations": [
+      {
+        "constraint_identity": "C_RISK",
+        "canonical_form": "risk <= 20",
+        "actual_value_hash": "670671cd97404156226e507973f2ab8330d3022ca96e0c93bdbdb320c41adcaf",
+        "actual_value_erased": false,
+        "personal_data_record_id": null,
+        "expected": "risk <= 20"
+      }
+    ],
+    "decision_id": "2913b825bd06a9e81828818943011dbe6f0736eb38096f2c0b895fa95396f51d",
+    "output_id": "req-003",
+    "timestamp": "2026-06-16T10:40:43.191062+00:00",
+    "binding_evidence": {},
+    "injection_warnings": [],
+    "verification_record": {
+      "verified": [],
+      "unverified": [],
+      "mismatches": [],
+      "source_errors": []
+    },
+    "gdpr_compliant": true,
+    "personal_data_store": "not_configured",
+    "decision_signature": null,
+    "decision_hash": "21f26ac700f2fef9bbf204fd47db9333342cdea468f208f19d3bfadbcb28a63d",
+    "_chain_hash": "87da3e752bfb8e9d4f5584536d6635c381a20db4a764b2a8c73cbcbcdfd80011"
+  },
+  {
+    "status": "BLOCK",
+    "violations": [
+      {
+        "constraint_identity": "C_AGE",
+        "canonical_form": "age >= 18",
+        "actual_value_hash": "e629fa6598d732768f7c726b4b621285f9c3b85303900aa912017db7617d8bdb",
+        "actual_value_erased": false,
+        "personal_data_record_id": null,
+        "expected": "age >= 18"
+      },
+      {
+        "constraint_identity": "C_RISK",
+        "canonical_form": "risk <= 20",
+        "actual_value_hash": "35135aaa6cc23891b40cb3f378c53a17a1127210ce60e125ccf03efcfdaec458",
+        "actual_value_erased": false,
+        "personal_data_record_id": null,
+        "expected": "risk <= 20"
+      }
+    ],
+    "decision_id": "a665473a47585dce61344ccfe185f7c255c04d389f50242c1313a5a7759942ff",
+    "output_id": "req-004",
+    "timestamp": "2026-06-16T10:40:43.401157+00:00",
+    "binding_evidence": {},
+    "injection_warnings": [],
+    "verification_record": {
+      "verified": [],
+      "unverified": [],
+      "mismatches": [],
+      "source_errors": []
+    },
+    "gdpr_compliant": true,
+    "personal_data_store": "not_configured",
+    "decision_signature": null,
+    "decision_hash": "41e227f3606c6ea518614fce714a6f43eb146695e287cdae316f98aadd1f5143",
+    "_chain_hash": "834dfa82fbd4a903b9f115f585b9c0e1325ad53c392e55387e596f6ff230df0e"
+  },
+  {
+    "status": "BLOCK",
+    "violations": [
+      {
+        "constraint_identity": "C_AGE",
+        "canonical_form": "age >= 18",
+        "actual_value": "MISSING_VARIABLE: \"Variable 'age' not in bindings\"",
+        "expected": "age >= 18"
+      }
+    ],
+    "decision_id": "aa8a41d0dc040d8fcb27259b2fdd6d9938215c16213be119be673b4288f3fcf0",
+    "output_id": "req-005",
+    "timestamp": "2026-06-16T10:40:43.617104+00:00",
+    "binding_evidence": {},
+    "injection_warnings": [],
+    "verification_record": {
+      "verified": [],
+      "unverified": [],
+      "mismatches": [],
+      "source_errors": []
+    },
+    "gdpr_compliant": true,
+    "personal_data_store": "not_configured",
+    "decision_signature": null,
+    "decision_hash": "917e403a7ba5e7a2e4fc6a14b58b90e9abe468c82021cfe846cf1846d45423d7",
+    "_chain_hash": "b93b9521db07d9c35c2a866784da9a36a43b86cd9492d57d49568c8dff5c6828"
+  }
+        ]
