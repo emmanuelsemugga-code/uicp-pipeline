@@ -1,0 +1,11 @@
+{
+  "export_id": "887485a6c080c5c1fd3f07d2f1e3752b72b53a242a09ad6f8fa647e6e5225f48",
+  "exported_at": "2026-06-17T07:47:44.545034+00:00",
+  "phase4_entry_count": 5,
+  "phase5_entry_count": 5,
+  "phase4_chain_valid": true,
+  "phase5_chain_valid": true,
+  "gateway_public_key_hex": "75d3904f9cc1ded4a3dbee3ba10ba946d1fd359ba0cb71d16eec48790d0d7e9d",
+  "operator_public_key_hex": "0cd44549070a183ee91a3ae006839c6c5ec10a491fe7a8c2b16e334bcd4f6e62",
+  "constraint_commitment_id": "6610e369db049731c97bee169a068ae12ef6296eb26bdf4690ae591ac4bc7f70"
+}
