@@ -1,0 +1,14 @@
+{
+  "objective_id": "LOAN_SAFETY_V1",
+  "commitment_id": "6610e369db049731c97bee169a068ae12ef6296eb26bdf4690ae591ac4bc7f70",
+  "constraint_set_hash": "d8e4435b3c12a25f7dd0166d3631e7a18676547e1110ece40e1175b4677353df",
+  "committed_at": "2026-06-17T07:47:44.539129+00:00",
+  "committed_by": "compliance.officer@bank.example",
+  "signature": "afd700c197259d0f03ce924c944bfbb0acf69405b313d83896d662c0425f14a8ef3631ccc2a3791330a795b6bd9ae6d3c0211eb9fbcf2310bc77189be2bfd308",
+  "status": "ACTIVE",
+  "_extended": {
+    "objective_description": "age\u226518 & risk\u226420",
+    "constraint_set_version": "v1",
+    "committed_by": "compliance.officer@bank.example"
+  }
+}
