@@ -1,0 +1,111 @@
+[
+  {
+    "proof_id": "4d007cab465a0d8a2cdf578810d9b91cfbc85479c2d787a7f3b33405b9694d9c",
+    "commitment_id": "6610e369db049731c97bee169a068ae12ef6296eb26bdf4690ae591ac4bc7f70",
+    "decision_id": "492810233539325fef96718ed8cfe86a9ae8e09f0ddf528774b714d6fda3491c",
+    "status": "ALLOW",
+    "proof_signature": "2c46b3bd71814b4270057415335ef6c332740a40f51fd49d22caf6d07704a31a27926df05b28dd2627b7009c1ee9519ef95762d966441b4178df8b6bda542502",
+    "_extended": {
+      "output_id": "req-001",
+      "violations": [],
+      "timestamp": "2026-06-17T07:47:44.541241+00:00",
+      "gateway_chain_valid": true
+    },
+    "_p5_record_id_field": "proof_id",
+    "_p5_chain_hash": "3547b6d2df5378fcd2f37f14b0c1368d7a3d42d9f1ab441d9338d598b7dde86c"
+  },
+  {
+    "proof_id": "b99cd319e49755fc68c536c7bcb55037dbac9966d72ed82e92f7709302a55719",
+    "commitment_id": "6610e369db049731c97bee169a068ae12ef6296eb26bdf4690ae591ac4bc7f70",
+    "decision_id": "d70e9260954f34ad701ca75c553a0b9d241329c72ed11b6fb8a902e4d20a6404",
+    "status": "BLOCK",
+    "proof_signature": "92971f5717a00ce97e5dc315fbe7801bd5b9c63fc784fb90e44f45cc7e3d8ecac4ea9d293e00e95d80e0b163c50e10ee4902e464495dbf74aac00c4ea55d9c00",
+    "_extended": {
+      "output_id": "req-002",
+      "violations": [
+        {
+          "constraint_identity": "C_AGE",
+          "canonical_form": "age >= 18",
+          "actual_value_hash": "b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9",
+          "expected": "age >= 18"
+        }
+      ],
+      "timestamp": "2026-06-17T07:47:44.541429+00:00",
+      "gateway_chain_valid": true
+    },
+    "_p5_record_id_field": "proof_id",
+    "_p5_chain_hash": "22ddffa56f7510a496a187708a213143c356297188b6152bd63fdd4ae2d6b4eb"
+  },
+  {
+    "proof_id": "9e3504187aaf814e3c89e85d5c09a03cac0441ab7a318cfeb7d9271b5fe8fce1",
+    "commitment_id": "6610e369db049731c97bee169a068ae12ef6296eb26bdf4690ae591ac4bc7f70",
+    "decision_id": "011fce2b90559c15adfefe94efd07beb182a37d1b8f5143c74a579c7c12f772e",
+    "status": "BLOCK",
+    "proof_signature": "88c267accc7db694279270877d863c4cd4fdbfefe96dc7c04cf4fd57e78f28e9dd6a42b3fbfa2e07fd9a138193e26d8e9bf67d127e459fccac65d550efa79405",
+    "_extended": {
+      "output_id": "req-003",
+      "violations": [
+        {
+          "constraint_identity": "C_RISK",
+          "canonical_form": "risk <= 20",
+          "actual_value_hash": "670671cd97404156226e507973f2ab8330d3022ca96e0c93bdbdb320c41adcaf",
+          "expected": "risk <= 20"
+        }
+      ],
+      "timestamp": "2026-06-17T07:47:44.541609+00:00",
+      "gateway_chain_valid": true
+    },
+    "_p5_record_id_field": "proof_id",
+    "_p5_chain_hash": "2bfc75d64611f79e7f10094b33da04434fc3cd43d07e72bcfe976455f346ba57"
+  },
+  {
+    "proof_id": "3f6033fa561a368a92621e434831115c6a69084ff61a3fd81d40388ee3cf13ac",
+    "commitment_id": "6610e369db049731c97bee169a068ae12ef6296eb26bdf4690ae591ac4bc7f70",
+    "decision_id": "fa6266d0cd3b48c23d1616f160ae59e65f29bbf7ca94940796b5d38459f621c9",
+    "status": "BLOCK",
+    "proof_signature": "5520945eea10aac456cdd972e3ffb4673f416d3789d2a6d82009854b6ff68c5bbe3be0d7ee06128d082860479ae0f8a3de9e57f7ead74f4b8db8497c631cb60b",
+    "_extended": {
+      "output_id": "req-004",
+      "violations": [
+        {
+          "constraint_identity": "C_AGE",
+          "canonical_form": "age >= 18",
+          "actual_value_hash": "e629fa6598d732768f7c726b4b621285f9c3b85303900aa912017db7617d8bdb",
+          "expected": "age >= 18"
+        },
+        {
+          "constraint_identity": "C_RISK",
+          "canonical_form": "risk <= 20",
+          "actual_value_hash": "35135aaa6cc23891b40cb3f378c53a17a1127210ce60e125ccf03efcfdaec458",
+          "expected": "risk <= 20"
+        }
+      ],
+      "timestamp": "2026-06-17T07:47:44.541805+00:00",
+      "gateway_chain_valid": true
+    },
+    "_p5_record_id_field": "proof_id",
+    "_p5_chain_hash": "dd971c3c93299f60ca540f6fc4f478c4bd678f9c265c68814173d501804f8342"
+  },
+  {
+    "proof_id": "603f21892cfa21023e5764875a1902988daf99672a4e4fd4178e948485034c15",
+    "commitment_id": "6610e369db049731c97bee169a068ae12ef6296eb26bdf4690ae591ac4bc7f70",
+    "decision_id": "3e515af047ce84069c66063254f7dd61d435edbb1420e09c040f06f4037eec77",
+    "status": "BLOCK",
+    "proof_signature": "cbe4683838605c00ef1bfc0e36b47f8cd56bb14d5bc13ea3299ac49a0a6932e8a15853816ba4446c3ade8b0231832b7c47a6910c288538041bf70e22df95ce0f",
+    "_extended": {
+      "output_id": "req-005",
+      "violations": [
+        {
+          "constraint_identity": "C_AGE",
+          "canonical_form": "age >= 18",
+          "actual_value_hash": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+          "expected": "age >= 18"
+        }
+      ],
+      "timestamp": "2026-06-17T07:47:44.541956+00:00",
+      "gateway_chain_valid": true
+    },
+    "_p5_record_id_field": "proof_id",
+    "_p5_chain_hash": "720d3c22f688fcc4e6bacee8bb5f5bfe8e4f75ea8f7744a6a580fabc5f614ab8"
+  }
+]
