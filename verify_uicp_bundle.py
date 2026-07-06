@@ -1,3 +1,6 @@
+# NOTE: This is the original verifier.  For the current,
+# full‑featured verifier (with Ed25519 signature checks),
+# use verify_phase5_bundle.py instead.
 #!/usr/bin/env python3
 """
 verify_uicp_bundle.py — UICP Independent Verification Script
