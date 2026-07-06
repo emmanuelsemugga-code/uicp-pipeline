@@ -254,11 +254,42 @@ INCOMPLETE — with cryptographic audit verification.
 [Watch the demo on YouTube](https://youtu.be/sGQq4Q-gN6Q)
 
 **Verify it yourself:**
-```bash
+``markdown
+## Independent Verification
+
+Anyone can verify the authenticity of a UICP audit bundle **without
+accessing the enforcement engines**.  You only need Python 3.12+ and
+the `cryptography` library.
+
+1. Install the cryptography library:
+```
+
+pip install cryptography
+
+```
+
+2. Download the verifier script from this repository:
+```
 git clone https://github.com/emmanuelsemugga-code/uicp-pipeline.git
 cd uicp-pipeline
-python3 verify_uicp_bundle.py audit_export/ public_keys.json
 
+```
+
+3. Obtain the audit bundle (`audit_export/`) and the `public_keys.json`
+   file from the UICP team.
+
+4. Run the verifier:
+```
+
+python3 verify_phase5_bundle.py audit_export/ public_keys.json
+
+```
+If every check shows `[PASS]`, the audit bundle is authentic, complete,
+and has not been tampered with.  No engine code is required.
+
+A live demonstration is available at:
+https://youtu.be/sGQq4Q-gN6Q
+```
 Disclosure boundary
 
 The internal engines (engines/phase*_engine.py, normalize_v05.py) are available
